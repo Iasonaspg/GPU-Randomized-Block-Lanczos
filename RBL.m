@@ -31,6 +31,7 @@ function [V,D] = RBL(A,k,b)
     i = 2;
     while true
         Q(:,(i-1)*b+1:i*b) = Q1;
+        [Q(:,(i-2)*b+1:i*b),~] = qr( Q(:,(i-2)*b+1:i*b),0 );
         if mod(i,2) == 0   
             [Q(:,1:i*b),~] = qr( Q(:,1:i*b),0 );
         end
