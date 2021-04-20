@@ -53,5 +53,5 @@ function [V,D] = RBL(A,k,b)
     end
     D = diag(D);
     D = D(1:k);
-    V = Q*V;
+    V = Q*V(:,1:k);
 end
