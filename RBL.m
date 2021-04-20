@@ -41,8 +41,8 @@ function [V,D] = RBL(A,k,b)
         Q0 = Q1;
         [Q1,B] = qr(R,0);
         T((i-1)*b+1:i*b,(i-1)*b+1:i*b) = M;
-        [V,D,~] = svd(T);
         if i > k
+        [V,D,~] = svd(T);
             if norm(B*V(end-b+1:end,k)) < 1.0e-2
                 break;
             end
