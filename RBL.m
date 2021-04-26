@@ -15,31 +15,30 @@ function [V,D] = RBL(A,k,b)
     n = size(A,2);
     T = zeros(k*b,k*b);
     Q = zeros(n,k*b);
-    Q1 = randn(n,b);
-    [Q1,~] = qr(A*Q1,0);
+    Qi = randn(n,b);
+    [Qi,~] = qr(A*Qi,0);
    
     % first loop
-    Q(:,1:b) = Q1;
-    U = A*Q1;
-    M = Q1.'*U;
-    R = U - Q1*M;
-    Q0 = Q1;
-    [Q1,B] = qr(R,0);
+    Q(:,1:b) = Qi;
+    U = A*Qi;
+    M = Qi.'*U;
+    R = U - Qi*M;
+    [Qi,B] = qr(R,0);
     T(1:b,1:b) = M;
     T(b+1:2*b,1:b) = B;
     T(1:b,b+1:2*b) = B.';
     i = 2;
-    while i*b < 200
-        Q(:,(i-1)*b+1:i*b) = Q1;
-        %[Q(:,(i-2)*b+1:i*b),~] = qr( Q(:,(i-2)*b+1:i*b),0 );
+    while i*b < 500
+        Q(:,(i-1)*b+1:i*b) = Qi;
         if mod(i,4) == 0
-            %[Q(:,1:i*b),~] = qr( Q(:,1:i*b),0 );
+            [Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b)] = part_reorth(Q,i,b);
         end
-        U = A*Q(:,(i-1)*b+1:i*b) - Q(:,(i-2)*b+1:(i-1)*b)*B.';
-        M = Q(:,(i-1)*b+1:i*b).'*U;
-        R = U - Q(:,(i-1)*b+1:i*b)*M;
-        %Q0 = Q(:,(i-1)*b+1:i*b);
-        [Q1,B] = qr(R,0);
+        Q(:,(i-1)*b+1:i*b) = loc_reorth(Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b));
+        Qi = Q(:,(i-1)*b+1:i*b);
+        U = A*Qi - Q(:,(i-2)*b+1:(i-1)*b)*B.';
+        M = Qi.'*U;
+        R = U - Qi*M;
+        [Qi,B] = qr(R,0);
         T((i-1)*b+1:i*b,(i-1)*b+1:i*b) = M;
         if i > k
             [V,D,~] = svd(T);
@@ -54,4 +53,26 @@ function [V,D] = RBL(A,k,b)
     D = diag(D);
     D = D(1:k);
     V = Q*V(:,1:k);
+end
+
+
+% orthogonalize U1 against U2
+function V  = loc_reorth(U1,U2)
+    temp = U2.'*U1;
+    V = U1 - U2*temp;
+    [V,~] = qr(V,0);
+end
+
+
+% orthogonalize the two latest blocks against all the previous
+function [V1,V2] = part_reorth(U,i,b)
+    V1 = U(:,(i-1)*b+1:i*b);
+    V2 = U(:,(i-2)*b+1:(i-1)*b);
+    for j=1:i-2
+        Uj = U(:,(j-1)*b+1:j*b);
+        temp = Uj.'*V1;
+        V1 = V1 - Uj*temp;
+        temp = Uj.'*V2;
+        V2 = V2 - Uj*temp;
+    end
 end
