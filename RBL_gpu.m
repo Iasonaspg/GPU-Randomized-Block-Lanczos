@@ -30,18 +30,18 @@ function [V,D] = RBL_gpu(A,k,b)
     T(b+1:2*b,1:b) = B;
     T(1:b,b+1:2*b) = B.';
     i = 2;
-    while i*b < 200
-        Q(:,(i-1)*b+1:i*b) = Q1;
-        %Qig = gpuArray(Q(:,(i-2)*b+1:i*b));
-        %[Qig,~] = qr(Qig,0);
+    clear Qig;
+    while i*b < 500
+        Q(:,(i-1)*b+1:i*b) = Qi;
         if mod(i,4) == 0
-            [Q(:,1:i*b),~] = qr(Q(:,1:i*b),0);
+            [Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b)] = part_reorth(Q,i,b);
         end
-        U = gather(Ag*Q1) - Q0*B.';
-        M = Q1.'*U;
-        R = U - Q1*M;
-        Q0 = Q1;
-        [Q1,B] = qr(R,0);
+        Q(:,(i-1)*b+1:i*b) = loc_reorth(Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b));
+        Qi = Q(:,(i-1)*b+1:i*b);
+        U = gather(Ag*Qi) - Q(:,(i-2)*b+1:(i-1)*b)*B.';
+        M = Qi.'*U;
+        R = U - Qi*M;
+        [Qi,B] = qr(R,0);
         T((i-1)*b+1:i*b,(i-1)*b+1:i*b) = M;
         if i > k
             [V,D,~] = svd(T);
