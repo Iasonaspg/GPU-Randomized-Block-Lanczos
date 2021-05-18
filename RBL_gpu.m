@@ -15,17 +15,17 @@ function [V,D] = RBL_gpu(A,k,b)
     n = size(A,2);
     T = zeros(k*b,k*b);
     Q = zeros(n,k*b);
-    Q0 = randn(n,b);
-    [Q1,~] = qr(A*Q0,0);
+    Qi = randn(n,b);
     Ag = gpuArray(A);
+    [Qig,~] = qr(Ag*Qi,0);
+    Qi = gather(Qig);
    
     % first loop
-    Q(:,1:b) = Q1;
-    U = gather(Ag*Q1);
-    M = Q1.'*U;
-    R = U - Q1*M;
-    Q0 = Q1;
-    [Q1,B] = qr(R,0);
+    Q(:,1:b) = Qi;
+    U = gather(Ag*Qig);
+    M = Qi.'*U;
+    R = U - Qi*M;
+    [Qi,B] = qr(R,0);
     T(1:b,1:b) = M;
     T(b+1:2*b,1:b) = B;
     T(1:b,b+1:2*b) = B.';
