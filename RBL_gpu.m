@@ -33,7 +33,7 @@ function [V,D] = RBL_gpu(A,k,b)
     clear Qig;
     while i*b < 500
         Q(:,(i-1)*b+1:i*b) = Qi;
-        if mod(i,4) == 0
+         if mod(i,4) == 0
             [Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b)] = part_reorth(Q,i,b);
         end
         Q(:,(i-1)*b+1:i*b) = loc_reorth(Q(:,(i-1)*b+1:i*b), Q(:,(i-2)*b+1:(i-1)*b));
@@ -66,3 +66,18 @@ function V  = loc_reorth(U1,U2)
     [V,~] = qr(V,0);
 end
 
+
+% orthogonalize the two latest blocks against all the previous
+function [V1,V2] = part_reorth(U,i,b)
+    V1g = gpuArray(U(:,(i-1)*b+1:i*b));
+    V2g = gpuArray(U(:,(i-2)*b+1:(i-1)*b));
+    for j=1:i-2
+        Uj = gpuArray(U(:,(j-1)*b+1:j*b));
+        temp = Uj.'*V1g;
+        V1g = V1g - Uj*temp;
+        temp = Uj.'*V2g;
+        V2g = V2g - Uj*temp;
+    end
+    V1 = gather(V1g);
+    V2 = gather(V2g);
+end
