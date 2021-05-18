@@ -57,3 +57,12 @@ function [V,D] = RBL_gpu(A,k,b)
     D = D(1:k);
     V = Q*V(:,1:k);
 end
+
+
+% orthogonalize U1 against U2
+function V  = loc_reorth(U1,U2)
+    temp = U2.'*U1;
+    V = U1 - U2*temp;
+    [V,~] = qr(V,0);
+end
+
