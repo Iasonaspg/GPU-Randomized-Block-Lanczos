@@ -42,7 +42,7 @@ function [V,D] = RBL(A,k,b)
         T((i-1)*b+1:i*b,(i-1)*b+1:i*b) = M;
         if i > k
             [V,D,~] = svd(T);
-            if norm(B*V(end-b+1:end,k)) < 1.0e-2
+            if norm(B*V(end-b+1:end,k)) < 1.0e-5
                 break;
             end
         end
@@ -50,9 +50,10 @@ function [V,D] = RBL(A,k,b)
         T((i-1)*b+1:i*b,i*b+1:(i+1)*b) = B.';
         i = i + 1;
     end
+    disp(i)
     D = diag(D);
     D = D(1:k);
-    V = Q*V(:,1:k);
+    %V = Q*V(:,1:k);
 end
 
 
