@@ -1,5 +1,7 @@
 using LinearAlgebra
 using MAT
+using TimerOutputs
+include("./RBL_gpu.jl")
 
 # Require square A
 function insertA!(A::Matrix{Float64}, b::Int64)
@@ -31,7 +33,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float64})
     info = 0;
     D = zeros(n,1);
     V = zeros(ldz,n);
-    ccall((:dsbev64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -49,10 +51,10 @@ function part_reorth!(U::Vector{Matrix{Float64}})
     for j=1:i-2
         Uj = U[j];
         Uj_T = transpose(Uj);
-        temp = Uj_T*U[i];
-        U[i] = U[i] - Uj*temp;
-        temp = Uj_T*U[i-1];
-        U[i-1] = U[i-1] - Uj*temp;
+        @timeit to "Uj*U2" temp = Uj_T*U[i];
+        @timeit to "U1" U[i] = U[i] - Uj*temp;
+        @timeit to "UjU2" temp = Uj_T*U[i-1];
+        @timeit to "U2" U[i-1] = U[i-1] - Uj*temp;
     end
     return nothing
 end
@@ -93,7 +95,7 @@ largest eigenvalues of a matrix A.
     while i*b < 500
         push!(Q,Qi);
         if mod(i,4) == 0
-            part_reorth!(Q);
+            @timeit to "part_reorth" part_reorth!(Q);
         end
         loc_reorth!(Q[i],Q[i-1]);
         U = A*Q[i] - Q[i-1]*transpose(Bi);
@@ -118,3 +120,15 @@ largest eigenvalues of a matrix A.
     return D,V;
 end
 
+function bench()
+    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/Serena.mat")
+    Problem = read(file,"Problem");
+    A = Problem["A"];
+    @timeit to "RBL" d,_ = RBL_gpu(A,5,10);
+    println(d);
+end
+
+BLAS.set_num_threads(1);
+to = TimerOutput();
+bench()
+show(to);
