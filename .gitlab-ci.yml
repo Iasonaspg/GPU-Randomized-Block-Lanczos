@@ -11,7 +11,7 @@ build-job:
         - linux
     script:
         - echo "Building"
-        - ls $CI_BUILDS_DIR
+        - ls $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos
 
 
 test-job:
