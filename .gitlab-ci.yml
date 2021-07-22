@@ -11,12 +11,24 @@ build-job:
         - linux
     script:
         - echo "Building"
-        - ls $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit\ Testing
 
-
-test-job:
+test-slow-dec:
     stage: test
     tags:
         - linux
     script:
-        - echo "Testing"
+        - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit\ Testing\slow_dec.jl
+
+test-mod-dec:
+    stage: test
+    tags:
+        - linux
+    script:
+        - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit\ Testing\mod_dec.jl
+
+test-step-dec:
+    stage: test
+    tags:
+        - linux
+    script:
+        - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit\ Testing\step_dec.jl
