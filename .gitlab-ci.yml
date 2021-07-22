@@ -10,7 +10,7 @@ build-job:
     tags:
         - linux
     script:
-        - echo "Building"
+        - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/packages.jl
 
 test-slow-dec:
     stage: test
