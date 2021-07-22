@@ -11,7 +11,7 @@ build-job:
         - linux
     script:
         - echo "Building"
-        - ls $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit Testing/mod_dec.jl
+        - ls $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/Unit\ Testing
 
 
 test-job:
