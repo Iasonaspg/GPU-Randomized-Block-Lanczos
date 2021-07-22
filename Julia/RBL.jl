@@ -1,8 +1,8 @@
 using LinearAlgebra
 
 using Pkg
-pkg.add("MAT")
-pkg.add("TimerOutputs")
+Pkg.add("MAT")
+Pkg.add("TimerOutputs")
 using MAT
 using TimerOutputs
 
