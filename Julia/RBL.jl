@@ -1,6 +1,10 @@
 using LinearAlgebra
-using MAT
 using TimerOutputs
+
+using Pkg
+pkg.add("MAT")
+using MAT
+
 include("./RBL_gpu.jl")
 
 # Require square A
