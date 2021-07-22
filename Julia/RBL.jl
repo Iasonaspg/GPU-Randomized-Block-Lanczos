@@ -1,9 +1,10 @@
 using LinearAlgebra
-using TimerOutputs
 
 using Pkg
 pkg.add("MAT")
+pkg.add("TimerOutputs")
 using MAT
+using TimerOutputs
 
 include("./RBL_gpu.jl")
 
