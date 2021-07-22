@@ -1,0 +1,22 @@
+stages:
+    - build
+    - test
+
+default:
+    image: julia:1.6.2
+
+build-job:
+    stage: build
+    tags:
+        - linux
+    script:
+        - echo "Building"
+        - julia --version
+
+
+test-job:
+    stage: test
+    tags:
+        - linux
+    script:
+        - echo "Testing"
