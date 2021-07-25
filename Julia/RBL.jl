@@ -135,5 +135,4 @@ end
 
 BLAS.set_num_threads(1);
 to = TimerOutput();
-bench()
-show(to);
+# bench()
