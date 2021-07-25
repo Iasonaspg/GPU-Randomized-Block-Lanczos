@@ -10,6 +10,7 @@ build-job:
     tags:
         - linux
     script:
+        - rm -rf packages
         - mkdir packages
         - export JULIA_DEPOT_PATH=./packages
         - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/packages.jl
