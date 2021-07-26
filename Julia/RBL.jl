@@ -1,12 +1,6 @@
 using LinearAlgebra
-
-using Pkg
-Pkg.add("MAT")
-Pkg.add("TimerOutputs")
 using MAT
 using TimerOutputs
-
-include("./RBL_gpu.jl")
 
 # Require square A
 function insertA!(A::Matrix{Float64}, b::Int64)
