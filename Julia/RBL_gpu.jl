@@ -1,30 +1,24 @@
 using CUDA
 
 # orthogonalize the two latest blocks against all the previous
-function part_reorth_gpu!(U::Vector{Matrix{Float64}})
+function part_reorth_gpu!(U::Vector{Matrix{FLOAT}})
     i = size(U,1);
-    U1 = CuArray(U[i]);
-    U2 = CuArray(U[i-1]);
-    CUDA.synchronize();
+    @timeit to "CuArray allocation" U1 = CuArray{FLOAT}(U[i]);
+    @timeit to "CuArray allocation" U2 = CuArray{FLOAT}(U[i-1]);
     Uj = CUDA.zeros(size(U1,1),size(U1,2));
-    Uj_T = CUDA.zeros(size(U1,2),size(U1,1));
+    # Uj_T = CUDA.zeros(size(U1,2),size(U1,1));
     for j=1:i-2
         @timeit to "Load Uj" copyto!(Uj,U[j]);
-        CUDA.synchronize();
-        @timeit to "transpose" transpose!(Uj_T,Uj);
-        CUDA.synchronize();
-        @timeit to "Uj*U1" temp = Uj_T*U1;
-        CUDA.synchronize();
+        # @timeit to "transpose" transpose!(Uj_T,Uj);
+        @timeit to "Uj^T*U1" temp = transpose(Uj)*U1;
         @timeit to "U1" U1 = U1 - Uj*temp;
-        CUDA.synchronize();
-        @timeit to "Uj*U2" temp = Uj_T*U2;
-        CUDA.synchronize();
+        @timeit to "Uj^T*U2" temp = transpose(Uj)*U2;
         @timeit to "U2" U2 = U2 - Uj*temp;
-        CUDA.synchronize();
     end
-    copyto!(U[i],U1);
-    copyto!(U[i-1],U2);
-    CUDA.synchronize();
+    @timeit to "copy to CPU" copyto!(U[i],U1);
+    @timeit to "copy to CPU" copyto!(U[i-1],U2);
+    return nothing
+end
     return nothing
 end
 
