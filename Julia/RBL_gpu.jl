@@ -28,6 +28,12 @@ function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArra
     return nothing
 end
 
+function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
+    @timeit to "transpose" temp = transpose(U2)*U1;
+    @timeit to "u1-u2*temp" temp = U1 - U2*temp;
+    @timeit to "qr" U1[:,:] = CuArray(qr(temp).Q);
+    return nothing;
+end
 
 function RBL_gpu(A,k::Int64,b::Int64)
     n = size(A,2);
