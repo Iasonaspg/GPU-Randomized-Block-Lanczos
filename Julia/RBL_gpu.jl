@@ -19,6 +19,12 @@ function part_reorth_gpu!(U::Vector{Matrix{FLOAT}})
     @timeit to "copy to CPU" copyto!(U[i-1],U2);
     return nothing
 end
+
+function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
+    @timeit to "Uj^T*U1" temp = transpose(Ug)*U1;
+    @timeit to "U1" U1[:,:] = U1 - Ug*temp;
+    @timeit to "Uj^T*U2" temp = transpose(Ug)*U2;
+    @timeit to "U2" U2[:,:] = U2 - Ug*temp;
     return nothing
 end
 
