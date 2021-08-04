@@ -2,7 +2,7 @@ using CUDA
 using Adapt
 using SparseArrays
 
-const FLOAT = Float32;
+const FLOAT = Float64;
 CUDA.allowscalar(false);
 
 function sparse_size(A::SparseMatrixCSC{Float32,Int64})
@@ -69,9 +69,10 @@ function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
     # GPU buffer size
     avail_mem = CUDA.available_memory();
     bl_sz = n*b*sizeof(FLOAT);
-    avail_mem = avail_mem - 4*bl_sz - sparse_size(A); # 4 blocks needed at least for part_reorth
+    avail_mem = avail_mem - 11*bl_sz - sparse_size(A);
     buffer_size::Int32 = floor(avail_mem/bl_sz);
     println("buffer_size: $buffer_size");
+    # buffer_size = 3;
 
     # first loop
     push!(Q,Array(Qg));
@@ -106,8 +107,8 @@ function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
                     end
                 end
                 copyto!(Qgpu[i-1],Qg1);
-                copyto!(Q[i-1],Qg1);
             end
+            copyto!(Q[i-1],Qg1);
         end
         @timeit to "loc_reorth" loc_reorth_gpu!(Qg,Qg1);
         push!(Q,Array(Qg));
@@ -125,7 +126,7 @@ function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
         T = [T insertA!(Array(Ai),b)];
         if i*b > k
             D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-6
                break;
             end
         end
