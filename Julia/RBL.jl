@@ -34,7 +34,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float32})
     info = 0;
     D = zeros(Float32,n,1);
     V = zeros(Float32,ldz,n);
-    ccall((:ssbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:ssbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -48,7 +48,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float64})
     info = 0;
     D = zeros(n,1);
     V = zeros(ldz,n);
-    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:dsbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -126,7 +126,7 @@ largest eigenvalues of a matrix A.
         T = [T insertA!(Ai,b)];
         if i*b > k
             @timeit to "dsbev" D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-6
                break;
             end
         end
@@ -140,15 +140,15 @@ largest eigenvalues of a matrix A.
 end
 
 function bench()
-    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/F1.mat")
+    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/ldoor.mat")
     Problem = read(file,"Problem");
     A::SparseMatrixCSC{FLOAT} = Problem["A"];
-    @timeit to "RBL" d,_ = RBL(A,5,10);
+    @timeit to "RBL" d,_ = RBL_gpu(A,25,30);
     println(d);
 end
 
 # BLAS.set_num_threads(6);
-to = TimerOutput();
-bench()
-show(to);
-println();
+# to = TimerOutput();
+# bench()
+# show(to);
+# println();
