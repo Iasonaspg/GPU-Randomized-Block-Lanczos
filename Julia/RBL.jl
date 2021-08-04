@@ -147,8 +147,4 @@ function bench()
     println(d);
 end
 
-# BLAS.set_num_threads(6);
-# to = TimerOutput();
-# bench()
-# show(to);
-# println();
+to = TimerOutput();
