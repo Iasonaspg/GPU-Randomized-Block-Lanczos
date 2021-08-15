@@ -2,7 +2,7 @@ using CUDA
 using Adapt
 using SparseArrays
 
-const FLOAT = Float64;
+const FLOAT = Float32;
 CUDA.allowscalar(false);
 
 function sparse_size(A::SparseMatrixCSC{Float32,Int64})
@@ -72,7 +72,7 @@ function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
     avail_mem = avail_mem - 11*bl_sz - sparse_size(A);
     buffer_size::Int32 = floor(avail_mem/bl_sz);
     println("buffer_size: $buffer_size");
-    # buffer_size = 3;
+    buffer_size = 45;
 
     # first loop
     push!(Q,Array(Qg));
