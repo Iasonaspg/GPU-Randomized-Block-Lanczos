@@ -149,7 +149,6 @@ function bench()
 end
 
 #BLAS.set_num_threads(6);
-#to = TimerOutput();
-#bench()
+to = TimerOutput();
 #show(to);
 #println();
