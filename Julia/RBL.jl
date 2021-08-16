@@ -34,7 +34,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float32})
     info = 0;
     D = zeros(Float32,n,1);
     V = zeros(Float32,ldz,n);
-    ccall((:ssbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:ssbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -48,7 +48,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float64})
     info = 0;
     D = zeros(n,1);
     V = zeros(ldz,n);
-    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:dsbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -148,8 +148,8 @@ function bench()
     println(d);
 end
 
-BLAS.set_num_threads(6);
-to = TimerOutput();
-bench()
-show(to);
-println();
+#BLAS.set_num_threads(6);
+#to = TimerOutput();
+#bench()
+#show(to);
+#println();
