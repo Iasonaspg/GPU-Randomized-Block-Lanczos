@@ -143,86 +143,45 @@ function RBL_gpu_old(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
     n = size(A,2);
     V = zeros(FLOAT);
     D = zeros(FLOAT);
-    @timeit to "A gpu allocation" Ag = adapt(CuArray, A);
+    Ag = adapt(CuArray,A);
     
     Qi = randn(FLOAT,n,b);
     Qg = CuArray(Qi);
     Qg = CuArray(qr(Ag*Qg).Q);
+    copyto!(Qi,Qg);
     
     Q = Matrix{FLOAT}[];
-    Qgpu = CuArray{FLOAT}[];
-    Qgj = CuArray{FLOAT}(undef,n,b);
-
-    # GPU buffer size
-    avail_mem = CUDA.available_memory();
-    bl_sz = n*b*sizeof(FLOAT);
-    avail_mem = avail_mem - 4*bl_sz - sparse_size(A); # 4 blocks needed at least for part_reorth
-    buffer_size::Int32 = floor(avail_mem/bl_sz);
-    println("buffer_size: $buffer_size");
 
     # first loop
-    push!(Q,Array(Qg));
-    push!(Qgpu,copy(Qg));
-    @timeit to "A*Qi" U = Ag*Qg;
-    Ai = transpose(Qg)*U;
-    R = Array(U - Qg*Ai);
+    push!(Q,Qi);
+    U = Array(Ag*Qg);
+    Ai = transpose(Qi)*U;
+    R = U - Qi*Ai;
     fact = qr(R);
     Qi = Matrix(fact.Q);
     Bi = fact.R;
-    T = insertA!(Array(Ai),b);
+    T = insertA!(Ai,b);
     insertB!(Bi,T,b,1);
-    Qg1 = CuArray(Qg);
-    copyto!(Qg,Qi);
     i = 2;
     while i*b < 1000
-        if mod(i,3) == 0
-            # Ag = nothing;
-            if i > buffer_size
-                @timeit to "part_reorth_hybrid" begin
-                    last = min(buffer_size,i-2);
-                    for j=1:last
-                        part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
-                    end
-                    for j=last+1:i-2
-                        copyto!(Qgj,Q[j]);
-                        part_reorth_gpu_block!(Qg,Qg1,Qgj);
-                    end
-                end
-            else
-                @timeit to "part_reorth_on" begin
-                    for j=1:i-2
-                        # copyto!(Qgj,Q[j]);
-                        part_reorth_gpu_block!(Qg,Qgpu[i-1],Qgpu[j]);
-                    end
-                end
-                # @timeit to "copyto" copyto!(Qgpu[i-1],Qgpu[i-1]);
-                # @timeit to "copyto" copyto!(Qgpu[i],Qgpu[i]);
-                # copyto!(Q[i],Qgpu[i]);
-                # copyto!(Qgpu[i-1],Qgpu[i-1]);
-                copyto!(Q[i-1],Qgpu[i-1]);
-            end
-        end
-        @timeit to "loc_reorth" loc_reorth_gpu!(Qg,Qgpu[i-1]);
         push!(Q,Qi);
-        if i <= buffer_size
-            push!(Qgpu,copy(Qg));
-        end
-        # copyto!(Q[i],Qg);
-        # copyto!(Qgpu[i],Qg);
-        # copyto!(Qg,Qg);
-        Big = CuArray{FLOAT}(Bi);
-        # @timeit to "copyto" copyto!(Q[i],Qg);
-        @timeit to "A*Qi" U = Ag*Qg - Qgpu[i-1]*transpose(Big);
-        @timeit to "Ai" Ai = transpose(Qg)*U;
-        @timeit to "U-QiAi" R = Array(U - Qg*Ai);
-        @timeit to "qr" fact = qr(R);
-        @timeit to "qr" Qg = Matrix(fact.Q);
+        if mod(i,3) == 0
+            # NVTX.@range "part reorth" begin
+                part_reorth_gpu!(Q);
+            # end
+                    end
+        loc_reorth!(Q[i],Q[i-1]);
+        copyto!(Qg,Q[i]);
+        U = Array(Ag*Qg) - Q[i-1]*transpose(Bi);
+        Ai = transpose(Q[i])*U;
+        R = U - Q[i]*Ai;
+        fact = qr(R);
+        Qi = Matrix(fact.Q);
         Bi = fact.R;
-        T = [T insertA!(Array(Ai),b)];
-        copyto!(Qg1,Qg);
+        T = [T insertA!(Ai,b)];
         if i*b > k
             D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-6
                break;
             end
         end
