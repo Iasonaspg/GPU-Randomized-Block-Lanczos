@@ -2,7 +2,7 @@ using CUDA
 using Adapt
 using SparseArrays
 
-const FLOAT = Float32;
+const FLOAT = Float64;
 CUDA.allowscalar(false);
 
 function sparse_size(A::SparseMatrixCSC{Float32,Int64})
