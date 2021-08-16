@@ -34,7 +34,7 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float32})
     info = 0;
     D = zeros(Float32,n,1);
     V = zeros(Float32,ldz,n);
-    ccall((:ssbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:ssbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
@@ -48,12 +48,12 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{Float64})
     info = 0;
     D = zeros(n,1);
     V = zeros(ldz,n);
-    ccall((:dsbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
     return D,V;
 end
 
 # orthogonalize U1 against U2
-function loc_reorth!(U1::Union{Matrix{FLOAT},CuArray{FLOAT}},U2::Union{Matrix{FLOAT},CuArray{FLOAT}})
+function loc_reorth!(U1::Matrix{FLOAT},U2::Matrix{FLOAT})
     temp = transpose(U2)*U1;
     temp = U1 - U2*temp;
     U1[:,:] = Matrix(qr(temp).Q);
@@ -133,18 +133,23 @@ largest eigenvalues of a matrix A.
         insertB!(Bi,T,b,i);
         i = i + 1;
     end
-    # println("Iterations: $i");
+    println("Iterations: $i");
     D = D[end:-1:end-k+1];
     #V = Q*V(:,1:k);
     return D,V;
 end
 
 function bench()
-    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/ldoor.mat")
+    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/F1.mat")
     Problem = read(file,"Problem");
     A::SparseMatrixCSC{FLOAT} = Problem["A"];
-    @timeit to "RBL" d,_ = RBL_gpu(A,25,30);
+    # @timeit to "RBL" d,_ = RBL(A,25,10);
+    @timeit to "RBL_gpu" CUDA.@profile d,_ = RBL_gpu(A,25,40);
     println(d);
 end
 
+BLAS.set_num_threads(6);
 to = TimerOutput();
+bench()
+show(to);
+println();
