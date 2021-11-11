@@ -25,11 +25,11 @@ function insertB!(B::Matrix{DOUBLE}, T::Matrix{DOUBLE}, b::Int64, iter::Int64)
 end
 
 function dsbev_lapack(jobz::Char, uplo::Char, n::Int64, bw::Int64, a::Matrix{Float32}, lda::Int64, D::Matrix{Float32}, V::Matrix{Float32}, ldz::Int64, work::Vector{Float32}, info::Int64)
-    ccall((:ssbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:ssbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
 end
 
 function dsbev_lapack(jobz::Char, uplo::Char, n::Int64, bw::Int64, a::Matrix{Float64}, lda::Int64, D::Matrix{Float64}, V::Matrix{Float64}, ldz::Int64, work::Vector{Float64}, info::Int64)
-    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    ccall((:dsbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
 end
 
 function dsbev(jobz::Char, uplo::Char, A::Matrix{DOUBLE})
@@ -133,11 +133,11 @@ largest eigenvalues of a matrix A.
 end
 
 function bench()
-    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/Matrix/Serena.mat")
+    file = matopen("/home/iasonas/Desktop/randomized-block-lanczos/Matrix/hood.mat")
     Problem = read(file,"Problem");
     A::SparseMatrixCSC{DOUBLE} = Problem["A"];
-    @timeit to "RBL" @time d,_ = RBL(A,25,10);
-    # @timeit to "RBL_gpu" CUDA.@time d,_ = RBL_gpu(A,25,10);
+    # @timeit to "RBL" @time d,_ = RBL(A,25,10);
+    @timeit to "RBL_gpu" CUDA.@time d,_ = RBL_gpu(A,25,10);
     # @timeit to "RBL_gpu" CUDA.@profile d,_ = RBL_gpu(A,25,10);
     println(d);
 end
@@ -145,9 +145,9 @@ end
 BLAS.set_num_threads(1);
 # CUDA.math_mode!(CUDA.DEFAULT_MATH);
 to = TimerOutput();
-d,_ = RBL(sprandn(DOUBLE,50,50,0.5),1,10);
+# d,_ = RBL(sprandn(DOUBLE,50,50,0.5),1,10);
 # d,_ = RBL_gpu(sprandn(DOUBLE,50,50,0.5),1,10);
-to = TimerOutput();
-bench();
-show(to);
-println();
+# to = TimerOutput();
+# bench();
+# show(to);
+# println();
