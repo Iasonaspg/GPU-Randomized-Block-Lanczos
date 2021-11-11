@@ -5,8 +5,8 @@ using TimerOutputs
 include("RBL_gpu.jl")
 
 # Require square A
-function insertA!(A::Matrix{FLOAT}, b::Int64)
-    T = zeros(FLOAT,b+1,b);
+function insertA!(A::Matrix{DOUBLE}, b::Int64)
+    T = zeros(DOUBLE,b+1,b);
     n = size(A,2);
     for j = 1:n
         size = n - j + 1;
@@ -16,7 +16,7 @@ function insertA!(A::Matrix{FLOAT}, b::Int64)
 end
 
 # Require square B
-function insertB!(B::Matrix{FLOAT}, T::Matrix{FLOAT}, b::Int64, iter::Int64)
+function insertB!(B::Matrix{DOUBLE}, T::Matrix{DOUBLE}, b::Int64, iter::Int64)
     n = size(B,2);
     start = (iter-1)*b;
     for j = 1:n
@@ -24,31 +24,25 @@ function insertB!(B::Matrix{FLOAT}, T::Matrix{FLOAT}, b::Int64, iter::Int64)
     end
 end
 
-function dsbev(jobz::Char, uplo::Char, A::Matrix{Float32})
-    n = size(A,2);
-    lda = size(A,1);
-    bw = lda - 1;
-    ldz = n;
-    a = copy(A);
-    work = zeros(Float32,3*n-2);
-    info = 0;
-    D = zeros(Float32,n,1);
-    V = zeros(Float32,ldz,n);
-    ccall((:ssbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
-    return D,V;
+function dsbev_lapack(jobz::Char, uplo::Char, n::Int64, bw::Int64, a::Matrix{Float32}, lda::Int64, D::Matrix{Float32}, V::Matrix{Float32}, ldz::Int64, work::Vector{Float32}, info::Int64)
+    ccall((:ssbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ptr{Float32}, Ref{Int64}, Ptr{Float32}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
 end
 
-function dsbev(jobz::Char, uplo::Char, A::Matrix{Float64})
+function dsbev_lapack(jobz::Char, uplo::Char, n::Int64, bw::Int64, a::Matrix{Float64}, lda::Int64, D::Matrix{Float64}, V::Matrix{Float64}, ldz::Int64, work::Vector{Float64}, info::Int64)
+    ccall((:dsbev_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+end
+
+function dsbev(jobz::Char, uplo::Char, A::Matrix{DOUBLE})
     n = size(A,2);
     lda = size(A,1);
     bw = lda - 1;
     ldz = n;
     a = copy(A);
-    work = zeros(3*n-2);
+    work = zeros(DOUBLE,3*n-2);
     info = 0;
-    D = zeros(n,1);
-    V = zeros(ldz,n);
-    ccall((:dsbev_64_, Base.liblapack_name), Nothing, (Ref{UInt8}, Ref{UInt8}, Ref{Int64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ptr{Float64}, Ref{Int64}, Ptr{Float64}, Ref{Int64}), jobz, uplo, n, bw, a, lda, D, V, ldz, work, info)
+    D = zeros(DOUBLE,n,1);
+    V = zeros(DOUBLE,ldz,n);
+    dsbev_lapack(jobz,uplo,n,bw,a,lda,D,V,ldz,work,info);
     return D,V;
 end
 
