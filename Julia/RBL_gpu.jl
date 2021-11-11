@@ -55,19 +55,21 @@ function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
     return nothing;
 end
 
-function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
+function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     n = size(A,2);
     V = zeros(FLOAT);
     D = zeros(FLOAT);
     Ag = adapt(CuArray, A);
     
-    Qi = randn(FLOAT,n,b);
-    Qg = CuArray(Qi);
-    Qg = CuArray(qr(Ag*Qg).Q);
+    Qg_d = CUDA.randn(DOUBLE,n,b);
+    Qg_d = CuArray(qr(Ag*Qg_d).Q);
+    Qg = CuArray{FLOAT}(Qg_d);
     
     Q = Matrix{FLOAT}[];
     Qgpu = CuArray{FLOAT}[];
     Qgj = CuArray{FLOAT}(undef,n,b);
+    Qg1_d = CuArray{DOUBLE}(undef,n,b);
+    U = CuArray{DOUBLE}(undef,n,b);
 
     # GPU buffer size
     avail_mem = CUDA.available_memory();
@@ -75,53 +77,58 @@ function RBL_gpu(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
     avail_mem = avail_mem - 11*bl_sz - sparse_size(A);
     buffer_size::Int32 = floor(avail_mem/bl_sz);
     println("buffer_size: $buffer_size");
-    # buffer_size = 1;
+    buffer_size = 30;
 
     # first loop
     push!(Q,Array(Qg));
     push!(Qgpu,copy(Qg));
-    U = Ag*Qg;
-    Ai = transpose(Qg)*U;
-    R = U - Qg*Ai;
-    fact = qr(R);
-    Qg1 = CuArray(Qg);
-    Qg = CuArray(fact.Q);
-    Bi = Array(fact.R);
+    @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
+    Ai::CuArray{DOUBLE} = transpose(Qg_d)*U;
+    mul!(U,Qg_d,Ai,-1.0,1.0);   # U = U - Qg*Ai;
+    fact = qr(U);
+    Qg1 = CuArray{FLOAT}(Qg_d);
+    Qg_d = CuArray(fact.Q);
+    CUDA.copyto!(Qg,Qg_d);
+    Bi = Array{DOUBLE}(fact.R);
     T = insertA!(Array(Ai),b);
     insertB!(Bi,T,b,1);
     i = 2;
     while i*b < 1000
         if mod(i,3) == 0
             if i > buffer_size
-                    last = min(buffer_size,i-2);
-                    for j=1:last
-                        part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
-                    end
-                    for j=last+1:i-2
-                        copyto!(Qgj,Q[j]);
-                        part_reorth_gpu_block!(Qg,Qg1,Qgj);
+                last = min(buffer_size,i-2);
+                for j=1:last
+                    @timeit to "part_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+                end
+                for j=last+1:i-2
+                    copyto!(Qgj,Q[j]);
+                    @timeit to "part_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgj);
                 end
             else
-                    for j=1:i-2
-                        part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+                for j=1:i-2
+                    @timeit to "par_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
                 end
                 copyto!(Qgpu[i-1],Qg1);
             end
             copyto!(Q[i-1],Qg1);
         end
-        loc_reorth_gpu!(Qg,Qg1);
-        push!(Q,Array(Qg));
+        @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
+        push!(Q,Array{FLOAT}(Qg));
         if i <= buffer_size
             push!(Qgpu,copy(Qg));
         end
-        Big = CuArray{FLOAT}(Bi);
-        U = Ag*Qg - Qg1*transpose(Big);
-        Ai = transpose(Qg)*U;
-        R = U - Qg*Ai;
-        fact = qr(R);
-        copyto!(Qg1,Qg);
-        Qg = CuArray(fact.Q);
-        Bi = Array(fact.R);
+        Big = CuArray{DOUBLE}(Bi);
+        CUDA.copyto!(Qg_d,Qg);
+        CUDA.copyto!(Qg1_d,Qg1);
+        @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
+        @timeit to "A*Qi" CUDA.@sync mul!(U,Qg1_d,transpose(Big),FLOAT(-1.0),FLOAT(1.0));  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        mul!(Ai,transpose(Qg_d),U);
+        @timeit to "U-QiAi" CUDA.@sync mul!(U,Qg_d,Ai,-1.0,1.0);
+        @timeit to "qr" CUDA.@sync fact = qr(U);
+        CUDA.copyto!(Qg1,Qg_d);
+        @timeit to "qr" CUDA.@sync Qg_d = CuArray(fact.Q);
+        CUDA.copyto!(Qg,Qg_d);
+        Bi = Array{DOUBLE}(fact.R);
         T = [T insertA!(Array(Ai),b)];
         if i*b > k
             D,V = dsbev('V','L',T);
@@ -157,7 +164,7 @@ function RBL_gpu_old(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
     Ai = transpose(Qi)*U;
     R = U - Qi*Ai;
     fact = qr(R);
-    Qi = Matrix(fact.Q);
+    Qi = Matrix{FLOAT}(fact.Q);
     Bi = fact.R;
     T = insertA!(Ai,b);
     insertB!(Bi,T,b,1);
@@ -168,14 +175,14 @@ function RBL_gpu_old(A::SparseMatrixCSC{FLOAT},k::Int64,b::Int64)
             # NVTX.@range "part reorth" begin
                 part_reorth_gpu!(Q);
             # end
-                    end
+        end
         loc_reorth!(Q[i],Q[i-1]);
         copyto!(Qg,Q[i]);
         U = Array(Ag*Qg) - Q[i-1]*transpose(Bi);
         Ai = transpose(Q[i])*U;
         R = U - Q[i]*Ai;
         fact = qr(R);
-        Qi = Matrix(fact.Q);
+        Qi = Matrix{FLOAT}(fact.Q);
         Bi = fact.R;
         T = [T insertA!(Ai,b)];
         if i*b > k
