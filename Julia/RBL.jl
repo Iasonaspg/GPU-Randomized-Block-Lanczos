@@ -68,6 +68,18 @@ function part_reorth!(U::Vector{Matrix{FLOAT}})
     return nothing
 end
 
+function recover_eigvec(Q::Vector{Matrix{FLOAT}},V_trunc::Matrix{FLOAT},k::Int64)
+    n = size(Q[1],1);
+    b = size(Q[1],2);
+    V = zeros(FLOAT,n,k);
+
+    tot_size = length(Q);
+    for i=1:tot_size
+        mul!(V,Q[i],V_trunc[(i-1)*b+1:i*b,:],1.0,1.0);
+    end
+    return V;
+end
+
 function RBL(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64,b::Int64)
 #=
 Input parameters
@@ -119,7 +131,7 @@ largest eigenvalues of a matrix A.
         T = [T insertA!(Ai,b)];
         if i*b > k
             @timeit to "dsbev" D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-6
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-10
                break;
             end
         end
@@ -128,7 +140,7 @@ largest eigenvalues of a matrix A.
     end
     println("Iterations: $i");
     D = D[end:-1:end-k+1];
-    #V = Q*V(:,1:k);
+    @timeit to "Recovery" V = recover_eigvec(Q,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k);  # V = Q*V(:,1:k);
     return D,V;
 end
 
