@@ -18,6 +18,13 @@ function sparse_size(A::SparseMatrixCSC{Float64,Int64})
     return nnz*(sizeof(Float64) + sizeof(Int64)) + (n+1)*sizeof(Int64);
 end
 
+zeros()
+
+function blocksize(nrows::Int64,::Core.Type{T}) where T
+    avail_mem = 0.9*CUDA.available_memory();
+    return Int64( floor(avail_mem / (nrows * sizeof(T))) );
+end
+
 # orthogonalize the two latest blocks against all the previous
 function part_reorth_gpu!(U::Vector{Matrix{FLOAT}})
     i = size(U,1);
@@ -50,9 +57,37 @@ end
 
 function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
     temp = transpose(U2)*U1;
-    mul!(U1,U2,temp,FLOAT(-1.0),FLOAT(1.0));
+    mul!(U1,U2,temp,-1.0,1.0);
     U1[:,:] = CuArray(qr(U1).Q);
     return nothing;
+end
+
+function recover_eigvec(Qcpu::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}},Vk::Matrix{FLOAT},k::Int64)
+    n = size(Qcpu[1],1);
+    b = size(Qcpu[1],2);
+    V = zeros(FLOAT,n,k);
+    blsz = blocksize(n,FLOAT);
+    # temp = CuArray{FLOAT}(undef,n,min(blsz,k));
+    println("Blocksize: $blsz, buff_size: $(length(Qgpu)) and tot_size: $(length(Qcpu))");;
+    
+    buff_size = length(Qgpu);
+    i = 1;
+    while i <= k
+        blsz_i = min(blsz,k-i+1);
+        temp = CUDA.zeros(FLOAT,n,blsz_i)
+        V_trunc = cu(Vk[:, i:i+blsz_i-1]);
+        for j=1:buff_size
+            mul!(temp,Qgpu[j],V_trunc[(j-1)*b+1:j*b,:],1.0,1.0);
+        end
+        copyto!(V[:,i:i+blsz_i-1],temp);
+        i = i + blsz_i;
+    end
+
+    tot_size = length(Qcpu);
+    for i = buff_size+1 : tot_size
+        mul!(V,Qcpu[i],Vk[(i-1)*b+1:i*b,:],1.0,1.0);
+    end
+    return V;
 end
 
 function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
@@ -72,12 +107,14 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     U = CuArray{DOUBLE}(undef,n,b);
 
     # GPU buffer size
-    avail_mem = CUDA.available_memory();
-    bl_sz = n*b*sizeof(FLOAT);
-    avail_mem = avail_mem - 11*bl_sz - sparse_size(A);
-    buffer_size::Int32 = floor(avail_mem/bl_sz);
+    avail_mem = 0.8*CUDA.available_memory();
+    bl_sz_f = n*b*sizeof(FLOAT);
+    bl_sz_d = n*b*sizeof(DOUBLE);
+    avail_mem = avail_mem - 6*bl_sz_f - 5*bl_sz_d - sparse_size(A);
+    buffer_size::Int32 = floor(avail_mem/bl_sz_f);
+    # buffer_size = floor(buffer_size/2);
     println("buffer_size: $buffer_size");
-    buffer_size = 30;
+    # buffer_size = 1000;
 
     # first loop
     push!(Q,Array(Qg));
@@ -86,7 +123,7 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     Ai::CuArray{DOUBLE} = transpose(Qg_d)*U;
     mul!(U,Qg_d,Ai,-1.0,1.0);   # U = U - Qg*Ai;
     fact = qr(U);
-    Qg1 = CuArray{FLOAT}(Qg_d);
+    Qg1 = CuArray{FLOAT}(copy(Qg_d));
     Qg_d = CuArray(fact.Q);
     CUDA.copyto!(Qg,Qg_d);
     Bi = Array{DOUBLE}(fact.R);
@@ -113,13 +150,13 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
             copyto!(Q[i-1],Qg1);
         end
         @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
-        push!(Q,Array{FLOAT}(Qg));
+        push!(Q,Array{FLOAT}(Qg_d));
         if i <= buffer_size
             push!(Qgpu,copy(Qg));
         end
-        Big = CuArray{DOUBLE}(Bi);
         CUDA.copyto!(Qg_d,Qg);
         CUDA.copyto!(Qg1_d,Qg1);
+        Big = CuArray{DOUBLE}(Bi);
         @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
         @timeit to "A*Qi" CUDA.@sync mul!(U,Qg1_d,transpose(Big),FLOAT(-1.0),FLOAT(1.0));  # U = A*Q[i] - Q[i-1]*transpose(Bi)
         mul!(Ai,transpose(Qg_d),U);
@@ -131,8 +168,8 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
         Bi = Array{DOUBLE}(fact.R);
         T = [T insertA!(Array(Ai),b)];
         if i*b > k
-            D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-6
+            @timeit to "dsbev" D,V = dsbev('V','L',T);
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-10
                break;
             end
         end
@@ -141,7 +178,13 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     end
     println("Iterations: $i");
     D = D[end:-1:end-k+1];
-    #V = Q*V(:,1:k);
+    Qg = nothing;
+    Qg_d = nothing;
+    Qg1 = nothing;
+    Qg1_d = nothing;
+    U = nothing;
+    CUDA.reclaim();
+    @timeit to "Recovery" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k); # V = Q*V(:,1:k);
     return D,V;
 end
 
