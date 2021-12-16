@@ -1,7 +1,7 @@
 using LinearAlgebra
 using SparseArrays
 
-const FLOAT = Float32;
+const FLOAT = Float64;
 const DOUBLE = Float64;
 
 # Require square A
