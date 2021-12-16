@@ -135,6 +135,7 @@ largest eigenvalues of a matrix A.
     D,V = lanczos_iteration(A,k,b,max_kryl_sz,Qi,Q,Qlock);
     println("D1: $(D[end:-1:end-k+1])");
     V = recover_eigvec(Q,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k);
+    D = D[end:-1:end-k+1];
     
     return D,V;
 end

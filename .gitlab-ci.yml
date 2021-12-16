@@ -5,6 +5,13 @@ stages:
 default:
     image: julia:1.7.0
 
+
+cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+        - packages/
+
+
 build-job:
     stage: build
     tags:
@@ -14,9 +21,6 @@ build-job:
         - mkdir packages
         - export JULIA_DEPOT_PATH=./packages
         - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/packages.jl
-    cache:
-        paths:
-            - packages/
 
 
 test-slow-dec:

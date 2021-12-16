@@ -4,6 +4,8 @@ using Test
 
 include("../RBL.jl");
 
+to = TimerOutput(); # temporary
+
 # Function that computes the k largest eigenvalues of A and returns the residual based on eig
 function RBL_residual(A,eig::Vector{FLOAT},k::Int64,b::Int64)
     d,_ = RBL(A,k,b);
