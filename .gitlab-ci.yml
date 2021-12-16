@@ -3,7 +3,7 @@ stages:
     - test
 
 default:
-    image: julia:1.6.2
+    image: julia:1.7.0
 
 build-job:
     stage: build
