@@ -21,6 +21,10 @@ build-job:
         - mkdir packages
         - export JULIA_DEPOT_PATH=./packages
         - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/packages.jl
+    cache:
+        key: $CI_COMMIT_REF_SLUG
+        paths:
+            - packages/
 
 
 test-slow-dec:
