@@ -6,12 +6,6 @@ default:
     image: julia:1.7.0
 
 
-cache:
-    key: $CI_COMMIT_REF_SLUG
-    paths:
-        - packages/
-
-
 build-job:
     stage: build
     tags:
@@ -23,6 +17,9 @@ build-job:
         - julia $CI_BUILDS_DIR/iasonaspg/randomized-block-lanczos/Julia/packages.jl
     cache:
         key: $CI_COMMIT_REF_SLUG
+        paths:
+            - packages/
+    artifacts:
         paths:
             - packages/
 
