@@ -1,9 +1,8 @@
 using CUDA
 using Adapt
-using SparseArrays
 
-const FLOAT = Float32;
-const DOUBLE = Float64;
+include("common.jl")
+
 CUDA.allowscalar(false);
 
 function sparse_size(A::SparseMatrixCSC{Float32,Int64})
@@ -17,8 +16,6 @@ function sparse_size(A::SparseMatrixCSC{Float64,Int64})
     n = size(A,2);
     return nnz*(sizeof(Float64) + sizeof(Int64)) + (n+1)*sizeof(Int64);
 end
-
-zeros()
 
 function blocksize(nrows::Int64,::Core.Type{T}) where T
     avail_mem = 0.9*CUDA.available_memory();
@@ -56,9 +53,13 @@ function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArra
 end
 
 function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
-    temp = transpose(U2)*U1;
-    mul!(U1,U2,temp,-1.0,1.0);
-    U1[:,:] = CuArray(qr(U1).Q);
+    p = size(U1,2);
+    for i=1:2*p
+        temp = transpose(U2)*U1;
+        mul!(U1,U2,temp,-1.0,1.0);
+        U1 = CuArray(qr(U1).Q);
+    end
+    U1[:,:] = U1;
     return nothing;
 end
 
