@@ -1,5 +1,6 @@
 using LinearAlgebra
 using SparseArrays
+using TimerOutputs
 
 const FLOAT = Float64;
 const DOUBLE = Float64;
