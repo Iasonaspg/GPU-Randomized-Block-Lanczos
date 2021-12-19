@@ -52,6 +52,29 @@ function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArra
     return nothing
 end
 
+function restart_reorth_gpu!(Q::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}},Qg::CuArray{FLOAT})
+    i = length(Qgpu);
+    temp = CuArray{FLOAT}(undef,size(Qg,2),size(Qg,2));
+    for j=1:i
+        mul!(temp,transpose(Qgpu[j]),Qg);
+        mul!(Qg,Qgpu[j],temp,FLOAT(-1.0),FLOAT(1.0));
+    end
+    
+    cpu_locked = length(Q);
+    if cpu_locked > 0
+        println("Enter\n");
+        Qgj = CuArray{FLOAT}(undef,size(Qg,1),size(Qg,2));
+        for j=1:cpu_locked
+            copyto!(Qgj,Q[j]);
+            mul!(temp,transpose(Qgj),Qg);
+            mul!(Qg,Qgj,temp,FLOAT(-1.0),FLOAT(1.0));
+        end
+    end
+
+    Qg[:,:] = Qg;
+    return nothing
+end
+
 function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
     p = size(U1,2);
     for i=1:2*p
