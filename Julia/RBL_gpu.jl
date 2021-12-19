@@ -5,13 +5,13 @@ include("common.jl")
 
 CUDA.allowscalar(false);
 
-function sparse_size(A::SparseMatrixCSC{Float32,Int64})
+function sparse_size(A::Union{SparseMatrixCSC{Float32,Int64},CUSPARSE.CuSparseMatrixCSC{Float32,Int32}})
     nnz = SparseArrays.nnz(A);
     n = size(A,2);
     return nnz*(sizeof(Float32) + sizeof(Int64)) + (n+1)*sizeof(Int64);
 end
 
-function sparse_size(A::SparseMatrixCSC{Float64,Int64})
+function sparse_size(A::Union{SparseMatrixCSC{Float64,Int64},CUSPARSE.CuSparseMatrixCSC{Float64,Int32}})
     nnz = SparseArrays.nnz(A);
     n = size(A,2);
     return nnz*(sizeof(Float64) + sizeof(Int64)) + (n+1)*sizeof(Int64);
@@ -44,9 +44,9 @@ end
 
 function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
     temp = transpose(Ug)*U1;
-    mul!(U1,Ug,temp,-1.0,1.0);
+    mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
     mul!(temp,transpose(Ug),U2);
-    mul!(U2,Ug,temp,-1.0,1.0);
+    mul!(U2,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
     U1[:,:] = U1;
     U2[:,:] = U2;
     return nothing
@@ -103,7 +103,7 @@ function recover_eigvec(Qcpu::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}}
         for j=1:buff_size
             mul!(temp,Qgpu[j],V_trunc[(j-1)*b+1:j*b,:],1.0,1.0);
         end
-        copyto!(V[:,i:i+blsz_i-1],temp);
+        V[:,i:i+blsz_i-1] = Matrix{FLOAT}(temp);
         i = i + blsz_i;
     end
 
@@ -114,30 +114,16 @@ function recover_eigvec(Qcpu::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}}
     return V;
 end
 
-function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
-    n = size(A,2);
-    V = zeros(FLOAT);
-    D = zeros(FLOAT);
-    Ag = adapt(CuArray, A);
-    
-    Qg_d = CUDA.randn(DOUBLE,n,b);
-    Qg_d = CuArray(qr(Ag*Qg_d).Q);
-    Qg = CuArray{FLOAT}(Qg_d);
-    
-    Q = Matrix{FLOAT}[];
-    Qgpu = CuArray{FLOAT}[];
-    Qgj = CuArray{FLOAT}(undef,n,b);
-    Qg1_d = CuArray{DOUBLE}(undef,n,b);
-    U = CuArray{DOUBLE}(undef,n,b);
-
-    # GPU buffer size
+function gpu_buffer_size(A::Union{SparseMatrixCSC{DOUBLE,Int64},CUSPARSE.CuSparseMatrixCSC{DOUBLE,Int32}},n::Int64,b::Int64)
     avail_mem = 0.8*CUDA.available_memory();
     bl_sz_f = n*b*sizeof(FLOAT);
     bl_sz_d = n*b*sizeof(DOUBLE);
     avail_mem = avail_mem - 6*bl_sz_f - 5*bl_sz_d - sparse_size(A);
-    buffer_size::Int32 = floor(avail_mem/bl_sz_f);
-    # buffer_size = floor(buffer_size/2);
+    buffer_size::Int64 = floor(avail_mem/bl_sz_f);
     println("buffer_size: $buffer_size");
+    return buffer_size;
+end
+
 function lanczos_iteration(
     Ag::CUSPARSE.CuSparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz::Int64,Qg_d::CuArray{DOUBLE},Q::Vector{Matrix{FLOAT}},
     Qgpu::Vector{CuArray{FLOAT}},Qlock::Vector{Matrix{FLOAT}},Qlock_gpu::Vector{CuArray{FLOAT}}
@@ -225,6 +211,68 @@ function lanczos_iteration(
     # @timeit to "Recovery" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k); # V = Q*V(:,1:k);
     return D,V;
 end
+
+function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
+    n = size(A,2);
+    V = zeros(FLOAT);
+    D = zeros(FLOAT);
+    Ag = adapt(CuArray, A);
+    
+    max_kryl_sz = 1000;
+
+    Qg_d = CUDA.randn(DOUBLE,n,b);
+    Qg_d = CuArray(qr(Ag*Qg_d).Q);
+    Q = Matrix{FLOAT}[];
+    Qgpu = CuArray{FLOAT}[];
+    Qlock = Matrix{FLOAT}[];
+    Qlock_gpu = CuArray{FLOAT}[];
+    D,V = lanczos_iteration(Ag,k,b,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
+    return D,V;
+end
+
+function RBL_gpu_restarted(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,step::Int64)
+    if (mod(k,step) != 0)
+        throw(ArgumentError("number of desired eigenvalues should be multiple of step size"))
+    end
+
+    if (mod(step,b) != 0)
+        throw(ArgumentError("step size should be multiple of block size"))
+    end
+
+    n = size(A,2);
+    V = zeros(FLOAT);
+    D = zeros(FLOAT);
+    Ag = adapt(CuArray, A);
+    
+    max_kryl_sz = 1000;
+
+    Qg_d = CUDA.randn(DOUBLE,n,b);
+    Qg_d = CuArray(qr(Ag*Qg_d).Q);
+    Q = Matrix{FLOAT}[];
+    Qgpu = CuArray{FLOAT}[];
+    Qlock = Matrix{FLOAT}[];
+    Qlock_gpu = CuArray{FLOAT}[];
+    count = 0;
+    while (count < k)
+        D,V = lanczos_iteration(Ag,step,b,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
+        println("D1: $(D[end:-1:end-step+1])");
+        QV = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k);
+        
+        Qi = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,1:b]),b);
+        copyto!(Qg_d,Qi);
+        Q = Matrix{FLOAT}[];
+        Qgpu = CuArray{FLOAT}[];
+        buff_size = gpu_buffer_size(Ag,n,b);
+        blks = Int64(step/b);
+        for i=1:blks
+            if i <= buff_size
+                push!(Qlock_gpu,CuArray{FLOAT}(QV[:,(i-1)*b+1:i*b]));
+            else
+                push!(Qlock,QV[:,(i-1)*b+1:i*b]);
+            end
+        end
+        count = count + step;
+    end
     return D,V;
 end
 
