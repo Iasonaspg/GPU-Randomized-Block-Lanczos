@@ -138,9 +138,22 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     buffer_size::Int32 = floor(avail_mem/bl_sz_f);
     # buffer_size = floor(buffer_size/2);
     println("buffer_size: $buffer_size");
-    # buffer_size = 1000;
+function lanczos_iteration(
+    Ag::CUSPARSE.CuSparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz::Int64,Qg_d::CuArray{DOUBLE},Q::Vector{Matrix{FLOAT}},
+    Qgpu::Vector{CuArray{FLOAT}},Qlock::Vector{Matrix{FLOAT}},Qlock_gpu::Vector{CuArray{FLOAT}}
+)
+    n = size(Ag,2);
+    buffer_size = gpu_buffer_size(Ag,n,b);
+
+    Qg = CuArray{FLOAT}(Qg_d);
+    Qgj = CuArray{FLOAT}(undef,n,b);
+    Qg1_d = CuArray{DOUBLE}(undef,n,b);
+    U = CuArray{DOUBLE}(undef,n,b);
+    D = zeros(FLOAT);
+    V = zeros(FLOAT);
 
     # first loop
+    restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
     push!(Q,Array(Qg));
     push!(Qgpu,copy(Qg));
     @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
@@ -154,8 +167,10 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     T = insertA!(Array(Ai),b);
     insertB!(Bi,T,b,1);
     i = 2;
-    while i*b < 1000
+    while i*b < kryl_sz
         if mod(i,3) == 0
+            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg1);
+            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
             if i > buffer_size
                 last = min(buffer_size,i-2);
                 for j=1:last
@@ -174,7 +189,7 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
             copyto!(Q[i-1],Qg1);
         end
         @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
-        push!(Q,Array{FLOAT}(Qg_d));
+        push!(Q,Array(Qg));
         if i <= buffer_size
             push!(Qgpu,copy(Qg));
         end
@@ -193,7 +208,7 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
         T = [T insertA!(Array(Ai),b)];
         if i*b > k
             @timeit to "dsbev" D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-10
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-5
                break;
             end
         end
@@ -201,14 +216,15 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
         i = i + 1;
     end
     println("Iterations: $i");
-    D = D[end:-1:end-k+1];
     Qg = nothing;
     Qg_d = nothing;
     Qg1 = nothing;
     Qg1_d = nothing;
     U = nothing;
     CUDA.reclaim();
-    @timeit to "Recovery" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k); # V = Q*V(:,1:k);
+    # @timeit to "Recovery" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k); # V = Q*V(:,1:k);
+    return D,V;
+end
     return D,V;
 end
 
