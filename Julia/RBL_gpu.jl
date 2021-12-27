@@ -18,7 +18,7 @@ function sparse_size(A::Union{SparseMatrixCSC{Float64,Int64},CUSPARSE.CuSparseMa
 end
 
 function blocksize(nrows::Int64,::Core.Type{T}) where T
-    avail_mem = 0.9*CUDA.available_memory();
+    avail_mem = 0.7*CUDA.available_memory();
     return Int64( floor(avail_mem / (nrows * sizeof(T))) );
 end
 
@@ -52,6 +52,30 @@ function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArra
     return nothing
 end
 
+function hybrid_part_reorth!(i::Int64,buffer_size::Int64,Qgpu::Vector{CuArray{FLOAT}},Q::Vector{Matrix{FLOAT}},Qg1::CuArray{FLOAT},Qg::CuArray{FLOAT})
+    n = size(Q[1],1);
+    b = size(Q[1],2);
+    Qgj = CuArray{FLOAT}(undef,n,b);
+    if i > buffer_size
+        last = min(buffer_size,i-2);
+        for j=1:last
+            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+        end
+        for j=last+1:i-2
+            copyto!(Qgj,Q[j]);
+            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgj);
+        end
+    else
+        for j=1:i-2
+            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+        end
+        copyto!(Qgpu[i-1],Qg1);
+    end
+    copyto!(Q[i-1],Qg1);
+    Qg[:,:] = Qg;
+    Qg1[:,:] = Qg1;
+end
+
 function restart_reorth_gpu!(Q::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}},Qg::CuArray{FLOAT})
     i = length(Qgpu);
     temp = CuArray{FLOAT}(undef,size(Qg,2),size(Qg,2));
@@ -62,7 +86,6 @@ function restart_reorth_gpu!(Q::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT
     
     cpu_locked = length(Q);
     if cpu_locked > 0
-        println("Enter\n");
         Qgj = CuArray{FLOAT}(undef,size(Qg,1),size(Qg,2));
         for j=1:cpu_locked
             copyto!(Qgj,Q[j]);
@@ -91,8 +114,7 @@ function recover_eigvec(Qcpu::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}}
     b = size(Qcpu[1],2);
     V = zeros(FLOAT,n,k);
     blsz = blocksize(n,FLOAT);
-    # temp = CuArray{FLOAT}(undef,n,min(blsz,k));
-    println("Blocksize: $blsz, buff_size: $(length(Qgpu)) and tot_size: $(length(Qcpu))");;
+    # println("Blocksize: $blsz, buff_size: $(length(Qgpu)) and tot_size: $(length(Qcpu))");;
     
     buff_size = length(Qgpu);
     i = 1;
@@ -116,12 +138,13 @@ end
 
 function gpu_buffer_size(A::Union{SparseMatrixCSC{DOUBLE,Int64},CUSPARSE.CuSparseMatrixCSC{DOUBLE,Int32}},n::Int64,b::Int64)
     avail_mem = 0.8*CUDA.available_memory();
+    println("avail_mem :$avail_mem");
     bl_sz_f = n*b*sizeof(FLOAT);
     bl_sz_d = n*b*sizeof(DOUBLE);
     avail_mem = avail_mem - 6*bl_sz_f - 5*bl_sz_d - sparse_size(A);
     buffer_size::Int64 = floor(avail_mem/bl_sz_f);
     println("buffer_size: $buffer_size");
-    return buffer_size;
+    return max(buffer_size,0);
 end
 
 function lanczos_iteration(
@@ -157,22 +180,7 @@ function lanczos_iteration(
         if mod(i,3) == 0
             restart_reorth_gpu!(Qlock,Qlock_gpu,Qg1);
             restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
-            if i > buffer_size
-                last = min(buffer_size,i-2);
-                for j=1:last
-                    @timeit to "part_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
-                end
-                for j=last+1:i-2
-                    copyto!(Qgj,Q[j]);
-                    @timeit to "part_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgj);
-                end
-            else
-                for j=1:i-2
-                    @timeit to "par_reorth" CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
-                end
-                copyto!(Qgpu[i-1],Qg1);
-            end
-            copyto!(Q[i-1],Qg1);
+            @timeit to "part_reorth" hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
         end
         @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
         push!(Q,Array(Qg));
@@ -192,9 +200,9 @@ function lanczos_iteration(
         CUDA.copyto!(Qg,Qg_d);
         Bi = Array{DOUBLE}(fact.R);
         T = [T insertA!(Array(Ai),b)];
-        if i*b > k
+        if (i*b > k) && (mod(i,4) == 0)
             @timeit to "dsbev" D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-5
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
                break;
             end
         end
@@ -208,8 +216,81 @@ function lanczos_iteration(
     Qg1_d = nothing;
     U = nothing;
     CUDA.reclaim();
-    # @timeit to "Recovery" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k); # V = Q*V(:,1:k);
-    return D,V;
+    return D[end:-1:end-k+1],V[:,end:-1:end-k+1];
+end
+
+function new_lanczos_iteration(
+    Ag::CUSPARSE.CuSparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz::Int64,Qg_d::CuArray{DOUBLE},Q::Vector{Matrix{FLOAT}},
+    Qgpu::Vector{CuArray{FLOAT}},Qlock::Vector{Matrix{FLOAT}},Qlock_gpu::Vector{CuArray{FLOAT}}
+)
+    n = size(Ag,2);
+    # buffer_size = gpu_buffer_size(Ag,n,b);
+    buffer_size = 150;
+
+    Qg = CuArray{FLOAT}(Qg_d);
+    Qg1_d = CuArray{DOUBLE}(undef,n,b);
+    U = CuArray{DOUBLE}(undef,n,b);
+    D = zeros(FLOAT);
+    V = zeros(FLOAT);
+
+    # first loop
+    restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
+    push!(Q,Array(Qg));
+    push!(Qgpu,copy(Qg));
+    @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
+    Ai::CuArray{DOUBLE} = transpose(Qg_d)*U;
+    mul!(U,Qg_d,Ai,-1.0,1.0);   # U = U - Qg*Ai;
+    fact = qr(U);
+    Qg1 = CuArray{FLOAT}(copy(Qg_d));
+    Qg_d = CuArray(fact.Q);
+    CUDA.copyto!(Qg,Qg_d);
+    Bi = Array{DOUBLE}(fact.R);
+    T = insertA!(Array(Ai),b);
+    insertB!(Bi,T,b,1);
+    i = 2;
+    while i*b < kryl_sz
+        if mod(i,3) == 0
+            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg1);
+            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
+            hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
+        end
+        @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
+        push!(Q,Array(Qg));
+        if i <= buffer_size
+            push!(Qgpu,copy(Qg));
+        end
+        CUDA.copyto!(Qg_d,Qg);
+        CUDA.copyto!(Qg1_d,Qg1);
+        Big = CuArray{DOUBLE}(Bi);
+        @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
+        @timeit to "A*Qi" CUDA.@sync mul!(U,Qg1_d,transpose(Big),FLOAT(-1.0),FLOAT(1.0));  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        mul!(Ai,transpose(Qg_d),U);
+        @timeit to "U-QiAi" CUDA.@sync mul!(U,Qg_d,Ai,-1.0,1.0);
+        @timeit to "qr" CUDA.@sync fact = qr(U);
+        CUDA.copyto!(Qg1,Qg_d);
+        @timeit to "qr" CUDA.@sync Qg_d = CuArray(fact.Q);
+        CUDA.copyto!(Qg,Qg_d);
+        Bi = Array{DOUBLE}(fact.R);
+        T = [T insertA!(Array(Ai),b)];
+        if (i+1)*b < kryl_sz
+            insertB!(Bi,T,b,i);
+        end
+        i = i + 1;
+    end
+    println("Iterations: $i");
+    Qg = nothing;
+    Qg_d = nothing;
+    Qg1 = nothing;
+    Qg1_d = nothing;
+    U = nothing;
+    CUDA.reclaim();
+
+    restart_reorth_gpu!(Qlock,Qlock_gpu,Qgpu[end-1]);
+    restart_reorth_gpu!(Qlock,Qlock_gpu,Qgpu[end]);
+    hybrid_part_reorth!(i-1,buffer_size,Qgpu,Q,Qgpu[end-1],Qgpu[end]);
+    @timeit to "dsbev" D,V = dsbev('V','L',T);
+    res_bounds = Bi*V[end-b+1:end,end:-1:1]; # residual bounds in descending order
+    return D[end:-1:1],V[:,end:-1:1],res_bounds;
 end
 
 function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
@@ -227,26 +308,19 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     Qlock = Matrix{FLOAT}[];
     Qlock_gpu = CuArray{FLOAT}[];
     D,V = lanczos_iteration(Ag,k,b,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
+    @timeit to "Recover eigevec" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V),k);
     return D,V;
 end
 
-function RBL_gpu_restarted(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,step::Int64)
-    if (mod(k,step) != 0)
-        throw(ArgumentError("number of desired eigenvalues should be multiple of step size"))
-    end
-
-    if (mod(step,b) != 0)
-        throw(ArgumentError("step size should be multiple of block size"))
-    end
-
+function RBL_gpu_restarted(A::SparseMatrixCSC{DOUBLE},k::Int64)
     n = size(A,2);
-    V = zeros(FLOAT);
-    D = zeros(FLOAT);
+    D = zeros(FLOAT,k,1);
+    V = zeros(FLOAT,n,k);
     Ag = adapt(CuArray, A);
     
-    max_kryl_sz = 1000;
+    max_kryl_sz = 100;
 
-    Qg_d = CUDA.randn(DOUBLE,n,b);
+    Qg_d = CUDA.randn(DOUBLE,n,1);
     Qg_d = CuArray(qr(Ag*Qg_d).Q);
     Q = Matrix{FLOAT}[];
     Qgpu = CuArray{FLOAT}[];
@@ -254,24 +328,37 @@ function RBL_gpu_restarted(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,step::In
     Qlock_gpu = CuArray{FLOAT}[];
     count = 0;
     while (count < k)
-        D,V = lanczos_iteration(Ag,step,b,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
-        println("D1: $(D[end:-1:end-step+1])");
-        QV = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k);
-        
-        Qi = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V[:,1:b]),b);
-        copyto!(Qg_d,Qi);
-        Q = Matrix{FLOAT}[];
-        Qgpu = CuArray{FLOAT}[];
-        buff_size = gpu_buffer_size(Ag,n,b);
-        blks = Int64(step/b);
-        for i=1:blks
-            if i <= buff_size
-                push!(Qlock_gpu,CuArray{FLOAT}(QV[:,(i-1)*b+1:i*b]));
+        d,v,conv = new_lanczos_iteration(Ag,k,1,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
+        buff_size = 100;
+        ncomp = 0;
+        for i=1:length(conv)
+            if (count + ncomp < k)
+                if norm(conv[i]) < 1e-7
+                    ncomp = ncomp + 1;
+                    println("val: $(d[i])");
+                    @timeit to "recovery" qv = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(v[:,i:i]),1);
+                    
+                    if (count + ncomp <= buff_size)
+                        push!(Qlock_gpu,CuArray{FLOAT}(qv));
+                    else
+                        push!(Qlock,qv);
+                    end
+
+                    D[count+ncomp] = d[i];
+                else
+                    @timeit to "recovery" Qi = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(v[:,i:i]),1);
+                    copyto!(Qg_d,Qi);
+                    break;
+                end
             else
-                push!(Qlock,QV[:,(i-1)*b+1:i*b]);
+                break;
             end
         end
-        count = count + step;
+        
+        Q = Matrix{FLOAT}[];
+        Qgpu = CuArray{FLOAT}[];
+        max_kryl_sz = max_kryl_sz + 10;
+        count = count + ncomp;
     end
     return D,V;
 end
