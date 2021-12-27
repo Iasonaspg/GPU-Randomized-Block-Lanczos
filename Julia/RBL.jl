@@ -83,7 +83,7 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
     i = 2;
     while i*b < kryl_sz
         push!(Q,Qi);
-        if mod(i,3) == 0
+        if mod(i,1) == 0
             part_reorth!(length(Qlock),Qlock,Q[i],Q[i-1]);
             @timeit to "part_reorth" part_reorth!(Q);
         end
@@ -108,6 +108,53 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
     end
     println("Iterations: $i");
     return D,V;
+end
+
+function new_lanczos_iteration(
+    A::SparseMatrixCSC{DOUBLE},b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},
+    Q::Vector{Matrix{FLOAT}},Qlock::Vector{Matrix{FLOAT}}
+)
+    D = zeros(DOUBLE);
+    V = zeros(DOUBLE);
+    B = Matrix{DOUBLE}[];
+    
+    # first loop
+    restart_reorth!(Qlock,Qi);
+    push!(Q,Qi);
+    @timeit to "A*Qi" U::Matrix{DOUBLE} = A*Qi;
+    Ai::Matrix{DOUBLE} = transpose(Qi)*U;
+    mul!(U,Qi,Ai,-1.0,1.0);
+    U = Matrix{FLOAT}(U);
+    fact = qr(U);
+    Qi = Matrix{FLOAT}(fact.Q);
+    Bi = Matrix{DOUBLE}(fact.R);
+    T = insertA!(Ai,b);
+    insertB!(Bi,T,b,1);
+    i = 2;
+    while i*b < kryl_sz
+        push!(Q,Qi);
+        if mod(i,1) == 0
+            part_reorth!(length(Qlock),Qlock,Q[i],Q[i-1]);
+            @timeit to "part_reorth" part_reorth!(Q);
+        end
+        @timeit to "loc_reorth" loc_reorth!(Q[i],Q[i-1]);
+        @timeit to "A*Qi" mul!(U,A,Q[i]);
+        @timeit to "A*Qi" mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        @timeit to "Ai" mul!(Ai,transpose(Q[i]),U,1.0,0.0);
+        U = Matrix{FLOAT}(U);
+        @timeit to "U-QiAi" mul!(U,Qi,Ai,-1.0,1.0);
+        @timeit to "qr" fact = qr(U);
+        @timeit to "qr" Qi = Matrix{FLOAT}(fact.Q);
+        Bi = Matrix{DOUBLE}(fact.R);
+        T = [T insertA!(Ai,b)];
+        insertB!(Bi,T,b,i);
+        i = i + 1;
+    end
+    println("Iterations: $i");
+    @timeit to "dsbev" D,V = dsbev('V','L',T);
+    conv = Bi*V[end-b+1:end,end:-1:1]; # convergence in descending order
+    # println(conv);
+    return D[end:-1:1],V[:,end:-1:1],conv;
 end
 
 
@@ -140,7 +187,7 @@ largest eigenvalues of a matrix A.
     return D,V;
 end
 
-function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64,b::Int64,step::Int64)
+function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64,b::Int64)
 #=
 Input parameters
 A - n by n Real Symmetric Matrix whose eigenvalues we seek
@@ -154,17 +201,10 @@ V - n by k matrix with eigenvectors associated with the k largest eigenvalues of
 This routine uses the randomized block Lanczos algorithm to compute the k 
 largest eigenvalues of a matrix A.
 =#
-    if (mod(k,step) != 0)
-        throw(ArgumentError("number of desired eigenvalues should be multiple of step size"))
-    end
-
-    if (mod(step,b) != 0)
-        throw(ArgumentError("step size should be multiple of block size"))
-    end
-
-    max_kryl_sz = 1000;
+    max_kryl_sz = 100;
     n = size(A,2);
     D = zeros(FLOAT);
+    V = zeros(FLOAT);
     
     Q = Matrix{FLOAT}[];
     Qlock = Matrix{FLOAT}[];
@@ -173,23 +213,28 @@ largest eigenvalues of a matrix A.
     
     count = 0;
     while (count < k)
-        D,V = lanczos_iteration(A,step,b,max_kryl_sz,Qi,Q,Qlock);
-        println("D1: $(D[end:-1:end-step+1])");
-        QV = recover_eigvec(Q,Matrix{FLOAT}(V[:,end:-1:end-step+1]),step);
-        
-        Qi = recover_eigvec(Q,Matrix{FLOAT}(V[:,1:b]),b);
-        Q = Matrix{FLOAT}[];
-        blks = Int64(step/b);
-        for i=1:blks
-            push!(Qlock,QV[:,(i-1)*b+1:i*b]);
+        D,V,conv = new_lanczos_iteration(A,b,max_kryl_sz,Qi,Q,Qlock);
+        ncomp = 0;
+        for i=1:length(conv)
+            if norm(conv[i]) < 1e-5
+                println("val: $(D[i])");
+                @timeit to "recovery" QV = recover_eigvec(Q,Matrix{FLOAT}(V[:,i:i]),1);
+                push!(Qlock,QV);
+                ncomp = ncomp + 1;
+            else
+                @timeit to "recovery" Qi = recover_eigvec(Q,Matrix{FLOAT}(V[:,i:i]),1);
+                break;
+            end
         end
-        count = count + step;
+        
+        Q = Matrix{FLOAT}[];
+        count = count + ncomp;
     end
     
-    V = Matrix{FLOAT}(undef,n,k);
-    for i=1:length(Qlock)
-        V[:,(i-1)*b+1:i*b] = Qlock[i];
-    end
+    # V = Matrix{FLOAT}(undef,n,k);
+    # for i=1:length(Qlock)
+        # V[:,(i-1)*b+1:i*b] = Qlock[i];
+    # end
 
     return D,V;
 end
