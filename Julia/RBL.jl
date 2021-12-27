@@ -99,7 +99,7 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
         T = [T insertA!(Ai,b)];
         if i*b > k
             @timeit to "dsbev" D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-5
+            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
                break;
             end
         end
@@ -107,7 +107,7 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
         i = i + 1;
     end
     println("Iterations: $i");
-    return D,V;
+    return D[end:-1:end-k+1],V[:,end:-1:end-k+1];
 end
 
 function new_lanczos_iteration(
@@ -133,7 +133,7 @@ function new_lanczos_iteration(
     i = 2;
     while i*b < kryl_sz
         push!(Q,Qi);
-        if mod(i,1) == 0
+        if mod(i,3) == 0
             part_reorth!(length(Qlock),Qlock,Q[i],Q[i-1]);
             @timeit to "part_reorth" part_reorth!(Q);
         end
@@ -150,11 +150,12 @@ function new_lanczos_iteration(
         insertB!(Bi,T,b,i);
         i = i + 1;
     end
+    part_reorth!(length(Qlock),Qlock,Q[end],Q[end-1]);
+    @timeit to "part_reorth" part_reorth!(Q);
     println("Iterations: $i");
     @timeit to "dsbev" D,V = dsbev('V','L',T);
-    conv = Bi*V[end-b+1:end,end:-1:1]; # convergence in descending order
-    # println(conv);
-    return D[end:-1:1],V[:,end:-1:1],conv;
+    res_bounds = Bi*V[end-b+1:end,end:-1:1]; # residual bounds in descending order
+    return D[end:-1:1],V[:,end:-1:1],res_bounds;
 end
 
 
@@ -180,14 +181,13 @@ largest eigenvalues of a matrix A.
     Qi = Matrix{FLOAT}(qr(A*Qi).Q);
    
     D,V = lanczos_iteration(A,k,b,max_kryl_sz,Qi,Q,Qlock);
-    println("D1: $(D[end:-1:end-k+1])");
-    V = recover_eigvec(Q,Matrix{FLOAT}(V[:,end:-1:end-k+1]),k);
-    D = D[end:-1:end-k+1];
+    println("D1: $(D)");
+    @timeit to "recover_eigvec" V = recover_eigvec(Q,Matrix{FLOAT}(V),k);
     
     return D,V;
 end
 
-function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64,b::Int64)
+function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64)
 #=
 Input parameters
 A - n by n Real Symmetric Matrix whose eigenvalues we seek
@@ -201,40 +201,40 @@ V - n by k matrix with eigenvectors associated with the k largest eigenvalues of
 This routine uses the randomized block Lanczos algorithm to compute the k 
 largest eigenvalues of a matrix A.
 =#
-    max_kryl_sz = 100;
+    max_kryl_sz = 80;
     n = size(A,2);
-    D = zeros(FLOAT);
-    V = zeros(FLOAT);
+    D = zeros(FLOAT,k,1);
+    V = zeros(FLOAT,n,k);
     
     Q = Matrix{FLOAT}[];
     Qlock = Matrix{FLOAT}[];
-    Qi = randn(DOUBLE,n,b);
+    Qi = randn(DOUBLE,n,1);
     Qi = Matrix{FLOAT}(qr(A*Qi).Q);
     
     count = 0;
     while (count < k)
-        D,V,conv = new_lanczos_iteration(A,b,max_kryl_sz,Qi,Q,Qlock);
+        d,v,conv = new_lanczos_iteration(A,1,max_kryl_sz,Qi,Q,Qlock);
         ncomp = 0;
         for i=1:length(conv)
-            if norm(conv[i]) < 1e-5
-                println("val: $(D[i])");
-                @timeit to "recovery" QV = recover_eigvec(Q,Matrix{FLOAT}(V[:,i:i]),1);
-                push!(Qlock,QV);
-                ncomp = ncomp + 1;
+            if (count + ncomp < k)
+                if norm(conv[i]) < 1e-7
+                    ncomp = ncomp + 1;
+                    println("val: $(d[i])");
+                    @timeit to "recovery" qv = recover_eigvec(Q,Matrix{FLOAT}(v[:,i:i]),1);
+                    push!(Qlock,qv);
+                    D[count+ncomp] = d[i];
+                else
+                    @timeit to "recovery" Qi = recover_eigvec(Q,Matrix{FLOAT}(v[:,i:i]),1);
+                    break;
+                end
             else
-                @timeit to "recovery" Qi = recover_eigvec(Q,Matrix{FLOAT}(V[:,i:i]),1);
                 break;
             end
         end
         
         Q = Matrix{FLOAT}[];
         count = count + ncomp;
+        max_kryl_sz = max_kryl_sz + 10;
     end
-    
-    # V = Matrix{FLOAT}(undef,n,k);
-    # for i=1:length(Qlock)
-        # V[:,(i-1)*b+1:i*b] = Qlock[i];
-    # end
-
     return D,V;
 end
