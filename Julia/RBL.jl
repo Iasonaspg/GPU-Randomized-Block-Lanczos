@@ -64,7 +64,7 @@ function recover_eigvec(Q::Vector{Matrix{FLOAT}},V_trunc::Matrix{FLOAT},k::Int64
 end
 
 
-function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},Q::Vector{Matrix{FLOAT}},Qlock::Vector{Matrix{FLOAT}})
+function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},Q::Vector{Matrix{FLOAT}})
     D = zeros(DOUBLE);
     V = zeros(DOUBLE);
     
@@ -109,7 +109,7 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
 end
 
 function new_lanczos_iteration(
-    A::SparseMatrixCSC{DOUBLE},b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},
+    A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},
     Q::Vector{Matrix{FLOAT}},Qlock::Vector{Matrix{FLOAT}}
 )
     D = zeros(DOUBLE);
@@ -157,7 +157,7 @@ function new_lanczos_iteration(
 end
 
 
-function RBL(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64,b::Int64)
+function RBL(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::Int64)
 #=
 Input parameters
 A - n by n Real Symmetric Matrix whose eigenvalues we seek
@@ -174,15 +174,15 @@ largest eigenvalues of a matrix A.
     max_kryl_sz = 1000;
     n = size(A,2);
     Q = Matrix{FLOAT}[];
-    Qlock = Matrix{FLOAT}[];
     Qi = randn(DOUBLE,n,b);
     Qi = Matrix{FLOAT}(qr(A*Qi).Q);
    
+    D,V = lanczos_iteration(A,k,b,max_kryl_sz,Qi,Q);
     V = recover_eigvec(Q,Matrix{FLOAT}(V),k);
     return D,V;
 end
 
-function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE}},k::Int64)
+function RBL_restarted(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64)
 #=
 Input parameters
 A - n by n Real Symmetric Matrix whose eigenvalues we seek

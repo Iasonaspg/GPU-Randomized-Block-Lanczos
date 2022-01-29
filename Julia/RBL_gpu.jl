@@ -5,16 +5,20 @@ include("common.jl")
 
 CUDA.allowscalar(false);
 
-function sparse_size(A::Union{SparseMatrixCSC{Float32,Int64},CUSPARSE.CuSparseMatrixCSC{Float32,Int32}})
+function matrix_size(A::Union{SparseMatrixCSC{Float32,Int64},CUSPARSE.CuSparseMatrixCSC{Float32,Int32}})
     nnz = SparseArrays.nnz(A);
     n = size(A,2);
     return nnz*(sizeof(Float32) + sizeof(Int64)) + (n+1)*sizeof(Int64);
 end
 
-function sparse_size(A::Union{SparseMatrixCSC{Float64,Int64},CUSPARSE.CuSparseMatrixCSC{Float64,Int32}})
+function matrix_size(A::Union{SparseMatrixCSC{Float64,Int64},CUSPARSE.CuSparseMatrixCSC{Float64,Int32}})
     nnz = SparseArrays.nnz(A);
     n = size(A,2);
     return nnz*(sizeof(Float64) + sizeof(Int64)) + (n+1)*sizeof(Int64);
+end
+
+function matrix_size(A::CuArray{Float64})
+    return size(A,1)*size(A,2)*sizeof(Float64);
 end
 
 function blocksize(nrows::Int64,::Core.Type{T}) where T
@@ -28,10 +32,8 @@ function part_reorth_gpu!(U::Vector{Matrix{FLOAT}})
     U1 = CuArray{FLOAT}(U[i]);
     U2 = CuArray{FLOAT}(U[i-1]);
     Uj = CUDA.zeros(size(U1,1),size(U1,2));
-    # Uj_T = CUDA.zeros(size(U1,2),size(U1,1));
     for j=1:i-2
         copyto!(Uj,U[j]);
-        # @timeit to "transpose" transpose!(Uj_T,Uj);
         temp = transpose(Uj)*U1;
         U1 = U1 - Uj*temp;
         temp = transpose(Uj)*U2;
@@ -136,33 +138,33 @@ function recover_eigvec(Qcpu::Vector{Matrix{FLOAT}},Qgpu::Vector{CuArray{FLOAT}}
     return V;
 end
 
-function gpu_buffer_size(A::Union{SparseMatrixCSC{DOUBLE,Int64},CUSPARSE.CuSparseMatrixCSC{DOUBLE,Int32}},n::Int64,b::Int64)
+function gpu_buffer_size(A::Union{SparseMatrixCSC{DOUBLE,Int64},CUSPARSE.CuSparseMatrixCSC{DOUBLE,Int32},CuArray{DOUBLE}},n::Int64,b::Int64)
     avail_mem = 0.8*CUDA.available_memory();
-    println("avail_mem :$avail_mem");
+    # println("avail_mem :$avail_mem");
     bl_sz_f = n*b*sizeof(FLOAT);
     bl_sz_d = n*b*sizeof(DOUBLE);
-    avail_mem = avail_mem - 6*bl_sz_f - 5*bl_sz_d - sparse_size(A);
+    avail_mem = avail_mem - 6*bl_sz_f - 5*bl_sz_d - matrix_size(A);
     buffer_size::Int64 = floor(avail_mem/bl_sz_f);
     println("buffer_size: $buffer_size");
     return max(buffer_size,0);
 end
 
 function lanczos_iteration(
-    Ag::CUSPARSE.CuSparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz::Int64,Qg_d::CuArray{DOUBLE},Q::Vector{Matrix{FLOAT}},
-    Qgpu::Vector{CuArray{FLOAT}},Qlock::Vector{Matrix{FLOAT}},Qlock_gpu::Vector{CuArray{FLOAT}}
+    Ag::Union{CUSPARSE.CuSparseMatrixCSC{DOUBLE},CuArray{DOUBLE}},k::Int64,b::Int64,kryl_sz::Int64,Qg_d::CuArray{DOUBLE},Q::Vector{Matrix{FLOAT}},
+    Qgpu::Vector{CuArray{FLOAT}}
 )
     n = size(Ag,2);
     buffer_size = gpu_buffer_size(Ag,n,b);
+    # buffer_size = 1000;
 
     Qg = CuArray{FLOAT}(Qg_d);
-    Qgj = CuArray{FLOAT}(undef,n,b);
     Qg1_d = CuArray{DOUBLE}(undef,n,b);
     U = CuArray{DOUBLE}(undef,n,b);
     D = zeros(FLOAT);
     V = zeros(FLOAT);
 
     # first loop
-    restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
+    i = 1;
     push!(Q,Array(Qg));
     push!(Qgpu,copy(Qg));
     mul!(U,Ag,Qg_d);
@@ -290,7 +292,7 @@ function new_lanczos_iteration(
     return D[end:-1:1],V[:,end:-1:1],res_bounds;
 end
 
-function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
+function RBL_gpu(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::Int64)
     n = size(A,2);
     V = zeros(FLOAT);
     D = zeros(FLOAT);
@@ -302,6 +304,7 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     Qg_d = CuArray(qr(Ag*Qg_d).Q);
     Q = Matrix{FLOAT}[];
     Qgpu = CuArray{FLOAT}[];
+    D,V = lanczos_iteration(Ag,k,b,max_kryl_sz,Qg_d,Q,Qgpu);
     V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V),k);
     return D,V;
 end
