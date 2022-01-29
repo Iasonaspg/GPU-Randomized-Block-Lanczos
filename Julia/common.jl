@@ -43,6 +43,6 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{DOUBLE})
     info = 0;
     D = zeros(DOUBLE,n,1);
     V = zeros(DOUBLE,ldz,n);
-    @timeit to "dsbev lapack" dsbev_lapack(jobz,uplo,n,bw,a,lda,D,V,ldz,work,info);
+    dsbev_lapack(jobz,uplo,n,bw,a,lda,D,V,ldz,work,info);
     return D,V;
 end
