@@ -165,7 +165,7 @@ function lanczos_iteration(
     restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
     push!(Q,Array(Qg));
     push!(Qgpu,copy(Qg));
-    @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
+    mul!(U,Ag,Qg_d);
     Ai::CuArray{DOUBLE} = transpose(Qg_d)*U;
     mul!(U,Qg_d,Ai,-1.0,1.0);   # U = U - Qg*Ai;
     fact = qr(U);
@@ -175,12 +175,12 @@ function lanczos_iteration(
     Bi = Array{DOUBLE}(fact.R);
     T = insertA!(Array(Ai),b);
     insertB!(Bi,T,b,1);
-    i = 2;
     while i*b < kryl_sz
+        i = i + 1;
         if mod(i,2) == 0
             hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
         end
-        @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
+        loc_reorth_gpu!(Qg,Qg1);
         push!(Q,Array(Qg));
         if i <= buffer_size
             push!(Qgpu,copy(Qg));
@@ -188,24 +188,23 @@ function lanczos_iteration(
         CUDA.copyto!(Qg_d,Qg);
         CUDA.copyto!(Qg1_d,Qg1);
         Big = CuArray{DOUBLE}(Bi);
-        @timeit to "A*Qi" CUDA.@sync mul!(U,Ag,Qg_d);
-        @timeit to "A*Qi" CUDA.@sync mul!(U,Qg1_d,transpose(Big),FLOAT(-1.0),FLOAT(1.0));  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        mul!(U,Ag,Qg_d);
+        mul!(U,Qg1_d,transpose(Big),FLOAT(-1.0),FLOAT(1.0));  # U = A*Q[i] - Q[i-1]*transpose(Bi)
         mul!(Ai,transpose(Qg_d),U);
-        @timeit to "U-QiAi" CUDA.@sync mul!(U,Qg_d,Ai,-1.0,1.0);
-        @timeit to "qr" CUDA.@sync fact = qr(U);
+        mul!(U,Qg_d,Ai,-1.0,1.0);
+        fact = qr(U);
         CUDA.copyto!(Qg1,Qg_d);
-        @timeit to "qr" CUDA.@sync Qg_d = CuArray(fact.Q);
+        Qg_d = CuArray(fact.Q);
         CUDA.copyto!(Qg,Qg_d);
         Bi = Array{DOUBLE}(fact.R);
         T = [T insertA!(Array(Ai),b)];
         if (i*b > k) && (mod(i,4) == 0)
-            @timeit to "dsbev" D,V = dsbev('V','L',T);
+            D,V = dsbev('V','L',T);
             if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
                break;
             end
         end
         insertB!(Bi,T,b,i);
-        i = i + 1;
     end
     println("Iterations: $i");
     Qg = nothing;
@@ -303,10 +302,7 @@ function RBL_gpu(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64)
     Qg_d = CuArray(qr(Ag*Qg_d).Q);
     Q = Matrix{FLOAT}[];
     Qgpu = CuArray{FLOAT}[];
-    Qlock = Matrix{FLOAT}[];
-    Qlock_gpu = CuArray{FLOAT}[];
-    D,V = lanczos_iteration(Ag,k,b,max_kryl_sz,Qg_d,Q,Qgpu,Qlock,Qlock_gpu);
-    @timeit to "Recover eigevec" V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V),k);
+    V = recover_eigvec(Q,Qgpu,Matrix{FLOAT}(V),k);
     return D,V;
 end
 

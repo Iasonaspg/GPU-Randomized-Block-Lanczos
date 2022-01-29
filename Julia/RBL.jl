@@ -17,10 +17,10 @@ function part_reorth!(nblocks::Int64,U::Vector{Matrix{FLOAT}},U1::Matrix{FLOAT},
     temp = Array{FLOAT}(undef,size(U1,2),size(U1,2));
     for j=1:nblocks
         Uj = U[j];
-        @timeit to "Uj_t*U1" mul!(temp,transpose(Uj),U1);
-        @timeit to "U1" mul!(U1,Uj,temp,FLOAT(-1.0),FLOAT(1.0)); # FLOAT is needed to prevent cast to Float64 and copy of data!
-        @timeit to "Uj_t*U2" mul!(temp,transpose(Uj),U2);
-        @timeit to "U2" mul!(U2,Uj,temp,FLOAT(-1.0),FLOAT(1.0));
+        mul!(temp,transpose(Uj),U1);
+        mul!(U1,Uj,temp,FLOAT(-1.0),FLOAT(1.0)); # FLOAT is needed to prevent cast to Float64 and copy of data!
+        mul!(temp,transpose(Uj),U2);
+        mul!(U2,Uj,temp,FLOAT(-1.0),FLOAT(1.0));
     end
     U1[:,:] = U1;
     U2[:,:] = U2;
@@ -32,10 +32,10 @@ function part_reorth!(U::Vector{Matrix{FLOAT}})
     temp = Array{FLOAT}(undef,size(U[1],2),size(U[1],2));
     for j=1:i-2
         Uj = U[j];
-        @timeit to "Uj_t*U1" mul!(temp,transpose(Uj),U[i]);
-        @timeit to "U1" mul!(U[i],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
-        @timeit to "Uj_t*U2" mul!(temp,transpose(Uj),U[i-1]);
-        @timeit to "U2" mul!(U[i-1],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
+        mul!(temp,transpose(Uj),U[i]);
+        mul!(U[i],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
+        mul!(temp,transpose(Uj),U[i-1]);
+        mul!(U[i-1],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
     end
     return nothing
 end
@@ -45,8 +45,8 @@ function restart_reorth!(U::Vector{Matrix{FLOAT}},Q::Matrix{FLOAT})
     temp = Array{FLOAT}(undef,size(Q,2),size(Q,2));
     for j=1:len
         Uj = U[j];
-        @timeit to "Uj_t*U1" mul!(temp,transpose(Uj),Q);
-        @timeit to "U1" mul!(Q,Uj,temp,FLOAT(-1.0),FLOAT(1.0));
+        mul!(temp,transpose(Uj),Q);
+        mul!(Q,Uj,temp,FLOAT(-1.0),FLOAT(1.0));
     end
     return nothing
 end
@@ -69,9 +69,8 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
     V = zeros(DOUBLE);
     
     # first loop
-    restart_reorth!(Qlock,Qi);
     push!(Q,Qi);
-    @timeit to "A*Qi" U::Matrix{DOUBLE} = A*Qi;
+    U::Matrix{DOUBLE} = A*Qi;
     Ai::Matrix{DOUBLE} = transpose(Qi)*U;
     mul!(U,Qi,Ai,-1.0,1.0);
     U = Matrix{FLOAT}(U);
@@ -86,18 +85,18 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
         if mod(i,2) == 0
             part_reorth!(Q);
         end
-        @timeit to "loc_reorth" loc_reorth!(Q[i],Q[i-1]);
-        @timeit to "A*Qi" mul!(U,A,Q[i]);
-        @timeit to "A*Qi" mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
-        @timeit to "Ai" mul!(Ai,transpose(Q[i]),U,1.0,0.0);
+        loc_reorth!(Q[i],Q[i-1]);
+        mul!(U,A,Q[i]);
+        mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        mul!(Ai,transpose(Q[i]),U,1.0,0.0);
         U = Matrix{FLOAT}(U);
-        @timeit to "U-QiAi" mul!(U,Qi,Ai,-1.0,1.0);
-        @timeit to "qr" fact = qr(U);
-        @timeit to "qr" Qi = Matrix{FLOAT}(fact.Q);
+        mul!(U,Qi,Ai,-1.0,1.0);
+        fact = qr(U);
+        Qi = Matrix{FLOAT}(fact.Q);
         Bi = Matrix{DOUBLE}(fact.R);
         T = [T insertA!(Ai,b)];
-        if i*b > k
-            @timeit to "dsbev" D,V = dsbev('V','L',T);
+        if (i*b > k) && (mod(i,4) == 0)
+            D,V = dsbev('V','L',T);
             if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
                break;
             end
@@ -179,10 +178,7 @@ largest eigenvalues of a matrix A.
     Qi = randn(DOUBLE,n,b);
     Qi = Matrix{FLOAT}(qr(A*Qi).Q);
    
-    D,V = lanczos_iteration(A,k,b,max_kryl_sz,Qi,Q,Qlock);
-    println("D1: $(D)");
-    @timeit to "recover_eigvec" V = recover_eigvec(Q,Matrix{FLOAT}(V),k);
-    
+    V = recover_eigvec(Q,Matrix{FLOAT}(V),k);
     return D,V;
 end
 
