@@ -177,10 +177,8 @@ function lanczos_iteration(
     insertB!(Bi,T,b,1);
     i = 2;
     while i*b < kryl_sz
-        if mod(i,3) == 0
-            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg1);
-            restart_reorth_gpu!(Qlock,Qlock_gpu,Qg);
-            @timeit to "part_reorth" hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
+        if mod(i,2) == 0
+            hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
         end
         @timeit to "loc_reorth" CUDA.@sync loc_reorth_gpu!(Qg,Qg1);
         push!(Q,Array(Qg));

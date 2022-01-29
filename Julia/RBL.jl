@@ -83,9 +83,8 @@ function lanczos_iteration(A::SparseMatrixCSC{DOUBLE},k::Int64,b::Int64,kryl_sz:
     i = 2;
     while i*b < kryl_sz
         push!(Q,Qi);
-        if mod(i,1) == 0
-            part_reorth!(length(Qlock),Qlock,Q[i],Q[i-1]);
-            @timeit to "part_reorth" part_reorth!(Q);
+        if mod(i,2) == 0
+            part_reorth!(Q);
         end
         @timeit to "loc_reorth" loc_reorth!(Q[i],Q[i-1]);
         @timeit to "A*Qi" mul!(U,A,Q[i]);
