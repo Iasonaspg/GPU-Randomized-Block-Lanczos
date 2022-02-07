@@ -29,13 +29,20 @@ end
 
 function part_reorth!(U::Vector{Matrix{FLOAT}})
     i = size(U,1);
-    temp = Array{FLOAT}(undef,size(U[1],2),size(U[1],2));
+    temp1 = Array{FLOAT}(undef,size(U[1],2),size(U[1],2));
+    temp2 = Array{FLOAT}(undef,size(U[1],2),size(U[1],2));
     for j=1:i-2
         Uj = U[j];
-        mul!(temp,transpose(Uj),U[i]);
-        mul!(U[i],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
-        mul!(temp,transpose(Uj),U[i-1]);
-        mul!(U[i-1],Uj,temp,FLOAT(-1.0),FLOAT(1.0));
+        @sync begin
+            Threads.@spawn begin
+                mul!(temp1,transpose(Uj),U[i]);
+                mul!(U[i],Uj,temp1,FLOAT(-1.0),FLOAT(1.0));
+            end
+            Threads.@spawn begin
+                mul!(temp2,transpose(Uj),U[i-1]);
+                mul!(U[i-1],Uj,temp2,FLOAT(-1.0),FLOAT(1.0));
+            end
+        end
     end
     return nothing
 end
