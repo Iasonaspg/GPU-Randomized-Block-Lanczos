@@ -89,7 +89,7 @@ function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::I
     i = 2;
     while i*b < kryl_sz
         push!(Q,Qi);
-        if mod(i,2) == 0
+        if mod(i,3) == 0
             part_reorth!(Q);
         end
         loc_reorth!(Q[i],Q[i-1]);
@@ -178,7 +178,7 @@ V - n by k matrix with eigenvectors associated with the k largest eigenvalues of
 This routine uses the randomized block Lanczos algorithm to compute the k 
 largest eigenvalues of a matrix A.
 =#
-    max_kryl_sz = 1000;
+    max_kryl_sz = 1400;
     n = size(A,2);
     Q = Matrix{FLOAT}[];
     Qi = randn(DOUBLE,n,b);

@@ -45,10 +45,17 @@ function part_reorth_gpu!(U::Vector{Matrix{FLOAT}})
 end
 
 function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
+    @sync begin
+        @async begin
     temp = transpose(Ug)*U1;
     mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
-    mul!(temp,transpose(Ug),U2);
-    mul!(U2,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
+        end
+
+        @async begin
+        temp2 = transpose(Ug)*U2;
+        mul!(U2,Ug,temp2,FLOAT(-1.0),FLOAT(1.0));
+        end
+    end
     U1[:,:] = U1;
     U2[:,:] = U2;
     return nothing
@@ -102,8 +109,9 @@ end
 
 function loc_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT})
     p = size(U1,2);
+    temp = CuArray{FLOAT}(undef,size(U2,2),size(U1,2));
     for i=1:2*p
-        temp = transpose(U2)*U1;
+        mul!(temp,transpose(U2),U1);
         mul!(U1,U2,temp,-1.0,1.0);
         U1 = CuArray(qr(U1).Q);
     end
@@ -179,11 +187,12 @@ function lanczos_iteration(
     insertB!(Bi,T,b,1);
     while i*b < kryl_sz
         i = i + 1;
-        if mod(i,2) == 0
+        if mod(i,3) == 0
             hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
         end
         loc_reorth_gpu!(Qg,Qg1);
         push!(Q,Array(Qg));
+        Q[end] = Mem.pin(Q[end]);
         if i <= buffer_size
             push!(Qgpu,copy(Qg));
         end
@@ -298,7 +307,7 @@ function RBL_gpu(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::In
     D = zeros(FLOAT);
     Ag = adapt(CuArray, A);
     
-    max_kryl_sz = 1000;
+    max_kryl_sz = 1200;
 
     Qg_d = CUDA.randn(DOUBLE,n,b);
     Qg_d = CuArray(qr(Ag*Qg_d).Q);
