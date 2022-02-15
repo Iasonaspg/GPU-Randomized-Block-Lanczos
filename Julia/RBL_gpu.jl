@@ -187,7 +187,7 @@ function lanczos_iteration(
     insertB!(Bi,T,b,1);
     while i*b < kryl_sz
         i = i + 1;
-        if mod(i,3) == 0
+        if mod(i,2) == 0
             hybrid_part_reorth!(i,buffer_size,Qgpu,Q,Qg1,Qg);
         end
         loc_reorth_gpu!(Qg,Qg1);

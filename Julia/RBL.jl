@@ -89,7 +89,7 @@ function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::I
     i = 2;
     while i*b < kryl_sz
         push!(Q,Qi);
-        if mod(i,3) == 0
+        if mod(i,2) == 0
             part_reorth!(Q);
         end
         loc_reorth!(Q[i],Q[i-1]);
