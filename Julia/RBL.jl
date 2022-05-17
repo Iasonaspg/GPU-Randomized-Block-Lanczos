@@ -71,47 +71,48 @@ function recover_eigvec(Q::Vector{Matrix{FLOAT}},V_trunc::Matrix{FLOAT},k::Int64
 end
 
 
-function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::Int64,kryl_sz::Int64,Qi::Matrix{FLOAT},Q::Vector{Matrix{FLOAT}})
+function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}}, k::Int64, b::Int64, kryl_sz::Int64, Qi::Matrix{FLOAT}, Q::Vector{Matrix{FLOAT}})
     D = zeros(DOUBLE);
     V = zeros(DOUBLE);
     
     # first loop
     push!(Q,Qi);
-    U::Matrix{DOUBLE} = A*Qi;
-    Ai::Matrix{DOUBLE} = transpose(Qi)*U;
-    mul!(U,Qi,Ai,-1.0,1.0);
+    @timeit to "A*Q" U::Matrix{DOUBLE} = A*Qi;
+    @timeit to "A*Q" Ai::Matrix{DOUBLE} = transpose(Qi)*U;
+    @timeit to "A*Q" mul!(U,Qi,Ai,-1.0,1.0);
     U = Matrix{FLOAT}(U);
-    fact = qr(U);
+    @timeit to "QR" fact = qr(U);
     Qi = Matrix{FLOAT}(fact.Q);
     Bi = Matrix{DOUBLE}(fact.R);
     T = insertA!(Ai,b);
     insertB!(Bi,T,b,1);
-    i = 2;
+    i = 1;
     while i*b < kryl_sz
+        i = i + 1;
         push!(Q,Qi);
         if mod(i,2) == 0
-            part_reorth!(Q);
+            @timeit to "Part reorth" part_reorth!(Q);
         end
-        loc_reorth!(Q[i],Q[i-1]);
-        mul!(U,A,Q[i]);
-        mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
-        mul!(Ai,transpose(Q[i]),U,1.0,0.0);
+        @timeit to "Loc reorth" loc_reorth!(Q[i],Q[i-1]);
+        @timeit to "A*Q" mul!(U,A,Q[i]);
+        @timeit to "A*Q" mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        @timeit to "A*Q" mul!(Ai,transpose(Q[i]),U,1.0,0.0);
         U = Matrix{FLOAT}(U);
-        mul!(U,Qi,Ai,-1.0,1.0);
-        fact = qr(U);
+        @timeit to "A*Q" mul!(U,Qi,Ai,-1.0,1.0);
+        @timeit to "QR" fact = qr(U);
         Qi = Matrix{FLOAT}(fact.Q);
         Bi = Matrix{DOUBLE}(fact.R);
         T = [T insertA!(Ai,b)];
         if (i*b > k) && (mod(i,4) == 0)
-            D,V = dsbev('V','L',T);
-            if norm(Bi*V[end-b+1:end,end-k+1]) < 1.0e-7
+            @timeit to "eig" D,V = dsbev('V','L',T);
+            D,V = sort_eig_abs(D,V,k);
+            if check_convergence(Bi,V,b,k,1e-7);
                break;
             end
         end
         insertB!(Bi,T,b,i);
-        i = i + 1;
     end
-    println("Iterations: $i");
+    println("Iterations: $i and kryl_sz: $(length(Q)*b)");
     return D[end:-1:end-k+1],V[:,end:-1:end-k+1];
 end
 

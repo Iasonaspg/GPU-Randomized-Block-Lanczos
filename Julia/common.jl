@@ -46,3 +46,20 @@ function dsbev(jobz::Char, uplo::Char, A::Matrix{DOUBLE})
     dsbev_lapack(jobz,uplo,n,bw,a,lda,D,V,ldz,work,info);
     return D,V;
 end
+
+function sort_eig_abs(D::Matrix{DOUBLE}, V::Matrix{DOUBLE}, k::Int64)
+    perm = sortperm(vec(D), by=abs);
+    perm_k = perm[end-k+1:end];
+    return D[perm_k], V[:,perm_k];
+end
+
+function check_convergence(B::Matrix{DOUBLE}, V::Matrix{DOUBLE}, b::Int64, k::Int64, tol::Float64)
+    Y = B * V[end-b+1:end,:];
+    for i=1:k
+        nrm = norm(Y[:,i]);
+        if nrm > tol
+            return false;
+        end
+    end
+    return true;
+end
