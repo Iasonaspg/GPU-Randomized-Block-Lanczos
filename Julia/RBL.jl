@@ -113,7 +113,7 @@ function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}}, k::
         insertB!(Bi,T,b,i);
     end
     println("Iterations: $i and kryl_sz: $(length(Q)*b)");
-    return D[end:-1:end-k+1],V[:,end:-1:end-k+1];
+    return D[end:-1:1],V[:,end:-1:1];
 end
 
 function RBL(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}},k::Int64,b::Int64)
