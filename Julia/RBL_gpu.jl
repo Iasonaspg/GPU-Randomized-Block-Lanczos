@@ -29,8 +29,8 @@ end
 function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
     @sync begin
         @async begin
-    temp = transpose(Ug)*U1;
-    mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
+        temp = transpose(Ug)*U1;
+        mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
         end
 
         @async begin
