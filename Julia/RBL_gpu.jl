@@ -26,18 +26,31 @@ function blocksize(nrows::Int64,::Core.Type{T}) where T
     return Int64( floor(avail_mem / (nrows * sizeof(T))) );
 end
 
-function part_reorth_gpu_block!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
+function part_reorth_gpu_async!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
+    synchronize();
     @sync begin
         @async begin
-        temp = transpose(Ug)*U1;
-        mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
+            temp = transpose(Ug)*U1;
+            mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
+            nothing;
         end
 
         @async begin
-        temp2 = transpose(Ug)*U2;
-        mul!(U2,Ug,temp2,FLOAT(-1.0),FLOAT(1.0));
+            temp2 = transpose(Ug)*U2;
+            mul!(U2,Ug,temp2,FLOAT(-1.0),FLOAT(1.0));
+            nothing;
         end
     end
+    U1[:,:] = U1;
+    U2[:,:] = U2;
+    return nothing
+end
+
+function part_reorth_gpu!(U1::CuArray{FLOAT},U2::CuArray{FLOAT},Ug::CuArray{FLOAT})
+    temp = transpose(Ug)*U1;
+    mul!(U1,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
+    temp = transpose(Ug)*U2;
+    mul!(U2,Ug,temp,FLOAT(-1.0),FLOAT(1.0));
     U1[:,:] = U1;
     U2[:,:] = U2;
     return nothing
@@ -50,15 +63,15 @@ function hybrid_part_reorth!(i::Int64,buffer_size::Int64,Qgpu::Vector{CuArray{FL
     if i > buffer_size
         last = min(buffer_size,i-2);
         for j=1:last
-            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+            CUDA.@sync part_reorth_gpu_async!(Qg,Qg1,Qgpu[j]);
         end
         for j=last+1:i-2
             copyto!(Qgj,Q[j]);
-            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgj);
+            CUDA.@sync part_reorth_gpu!(Qg,Qg1,Qgj);
         end
     else
         for j=1:i-2
-            CUDA.@sync part_reorth_gpu_block!(Qg,Qg1,Qgpu[j]);
+            CUDA.@sync part_reorth_gpu_async!(Qg,Qg1,Qgpu[j]);
         end
         copyto!(Qgpu[i-1],Qg1);
     end
