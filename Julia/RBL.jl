@@ -78,8 +78,8 @@ function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}}, k::
     # first loop
     push!(Q,Qi);
     @timeit to "A*Q" U::Matrix{DOUBLE} = A*Qi;
-    @timeit to "A*Q" Ai::Matrix{DOUBLE} = transpose(Qi)*U;
-    @timeit to "A*Q" mul!(U,Qi,Ai,-1.0,1.0);
+    @timeit to "3-term" Ai::Matrix{DOUBLE} = transpose(Qi)*U;
+    @timeit to "3-term" mul!(U,Qi,Ai,-1.0,1.0);
     U = Matrix{FLOAT}(U);
     @timeit to "QR" fact = qr(U);
     Qi = Matrix{FLOAT}(fact.Q);
@@ -95,10 +95,10 @@ function lanczos_iteration(A::Union{SparseMatrixCSC{DOUBLE},Matrix{DOUBLE}}, k::
         end
         @timeit to "Loc reorth" loc_reorth!(Q[i],Q[i-1]);
         @timeit to "A*Q" mul!(U,A,Q[i]);
-        @timeit to "A*Q" mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
-        @timeit to "A*Q" mul!(Ai,transpose(Q[i]),U,1.0,0.0);
+        @timeit to "3-term" mul!(U,Q[i-1],transpose(Bi),-1.0,1.0);  # U = A*Q[i] - Q[i-1]*transpose(Bi)
+        @timeit to "3-term" mul!(Ai,transpose(Q[i]),U,1.0,0.0);
         U = Matrix{FLOAT}(U);
-        @timeit to "A*Q" mul!(U,Qi,Ai,-1.0,1.0);
+        @timeit to "3-term" mul!(U,Qi,Ai,-1.0,1.0);
         @timeit to "QR" fact = qr(U);
         Qi = Matrix{FLOAT}(fact.Q);
         Bi = Matrix{DOUBLE}(fact.R);
