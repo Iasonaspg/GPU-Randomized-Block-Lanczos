@@ -18,7 +18,7 @@ function Ax(x)
     return A*x;
 end
 
-const A = mmread("../Matrix/audi.mtx");
+# const A = mmread("../Matrix/audi.mtx");
 # const Ag = adapt(CuArray,A);
 
 function bench()
@@ -50,16 +50,16 @@ BLAS.set_num_threads(1);
 println("Number of threads: $(BLAS.get_num_threads())");
 CUDA.math_mode!(CUDA.DEFAULT_MATH);
 
-A_map = LinearMap(Ax,size(A,1),issymmetric=true);
-A_map_gpu = LinearMap(Ax_gpu,size(A,1),issymmetric=true);
+# A_map = LinearMap(Ax,size(A,1),issymmetric=true);
+# A_map_gpu = LinearMap(Ax_gpu,size(A,1),issymmetric=true);
 
 to = TimerOutput();
-d,_ = RBL(sprandn(DOUBLE,200,200,0.5),1,1);
-#  d,_ = RBL_gpu(sprandn(DOUBLE,50,50,0.5),1,1);
+# d,_ = RBL(sprandn(DOUBLE,200,200,0.5),1,1);
+ d,_ = RBL_gpu(sprandn(DOUBLE,50,50,0.5),1,1);
 # d,v = eigs(sprandn(DOUBLE,50,50,0.5),nev=1);
 # d,v = eigs(A_map_gpu,nev=1);
 to = TimerOutput();
-bench();
+# bench();
 show(to);
 println();
 println("\n\n");
