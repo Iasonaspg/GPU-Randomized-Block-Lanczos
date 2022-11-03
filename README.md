@@ -7,6 +7,7 @@ This repository contains my implementation of a GPU accelerated *Randomized Bloc
 Lanczos algorithm is one of the best methods to compute a few extreme eigenvalues and eigenvectors of large sparse symmetric matrices. It can be seen as the application of the *Gram-Schmidt*  method on a Krylov subspace. 
 
 Given a matrix $A \in \mathbb{R}^{n \times n}$ and a starting vector $x \in \mathbb{R}^{n}$, Krylov subspaces are defined as 
+
 $$ K_j (A,x) = span(x, Ax, A^2x, \dots, A^{j-1}x) $$
 
 Lanczos algorithm produces an orthonormal basis $Q_j = (q_0\ q_1\ \dots\ q_{j-1})$ (Krylov vectors)that spans the subspace $K_j (A,x)$.
